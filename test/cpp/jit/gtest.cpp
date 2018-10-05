@@ -23,6 +23,7 @@ JIT_TEST(FromQualString)
 JIT_TEST(InternedStrings)
 JIT_TEST(IValue)
 JIT_TEST(GraphEquality)
+JIT_TEST(IRParser)
 
 #define JIT_TEST_CUDA(name)    \
   TEST(JitTest, name##_CUDA) { \

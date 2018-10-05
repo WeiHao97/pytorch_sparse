@@ -128,7 +128,10 @@ public:
     }
     return parent_;
   }
-  bool isRoot() {
+  const std::vector<std::unique_ptr<Scope>>& children() const {
+    return children_;
+  }
+  bool isRoot() const {
     return parent_ == nullptr;
   }
   Scope* getRoot() {
@@ -138,10 +141,10 @@ public:
     }
     return current;
   }
-  Symbol name() {
+  Symbol name() const {
     return name_;
   }
-  std::string namesFromRoot(const std::string& separator="/") {
+  std::string namesFromRoot(const std::string& separator="/") const {
     // TODO: I think the answer is we shouldn't have used Symbol here
     std::string out = this->name_.toUnqualString();
     if (this->isRoot()) {

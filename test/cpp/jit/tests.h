@@ -48,6 +48,7 @@
 #include "torch/csrc/jit/ivalue.h"
 #include "torch/csrc/jit/script/compiler.h"
 #include "torch/csrc/jit/script/module.h"
+#include "torch/csrc/jit/script/parser.h"
 
 #include "onnx/onnx_pb.h"
 
@@ -110,6 +111,48 @@ int foo(hi, 8) {
 }
 int commatest(int a, things..., others)
 int notest(int a)
+)";
+
+auto foo = R"(
+graph(%a : Dynamic,
+      %b : Dynamic,
+      %c : Dynamic):
+  %2 : int = prim::Constant[value=1]()
+  %3 : Dynamic = aten::add(%a, %b, %2)
+  %5 : Dynamic = prim::If(%c)
+    block0():
+      %8 : int = prim::Constant[value=1]()
+      %9 : Dynamic = aten::add(%b, %3, %8)
+      %10 : int = prim::Constant[value=1]()
+      %11 : Dynamic = aten::add(%9, %3, %10)
+      -> (%11)
+  %12 : int = prim::Constant[value=1]()
+  %13 : Dynamic = aten::add(%5, %3, %12)
+  return (%13)
+)";
+auto foo2 = R"(
+graph(%0 : Double(20, 16, 50, 40),
+      %1 : Double(13, 16, 3, 3)):
+  %2 : Dynamic = prim::Undefined(), scope: Conv2d
+  %3 : int = prim::Constant[value=1](), scope: Conv2d/foo
+  %4 : int = prim::Constant[value=1](), scope: Conv2d
+  %5 : int[] = prim::ListConstruct(%3, %4), scope: Conv2d
+  %6 : int = prim::Constant[value=0](), scope: Conv2d
+  %7 : int = prim::Constant[value=0](), scope: Conv2d
+  %8 : int[] = prim::ListConstruct(%6, %7), scope: Conv2d
+  %9 : int = prim::Constant[value=1](), scope: Conv2d
+  %10 : int = prim::Constant[value=1](), scope: Conv2d
+  %11 : int[] = prim::ListConstruct(%9, %10), scope: Conv2d
+  %12 : bool = prim::Constant[value=0](), scope: Conv2d
+  %13 : int = prim::Constant[value=0](), scope: Conv2d
+  %14 : int = prim::Constant[value=0](), scope: Conv2d
+  %15 : int[] = prim::ListConstruct(%13, %14), scope: Conv2d
+  %16 : int = prim::Constant[value=1](), scope: Conv2d
+  %17 : bool = prim::Constant[value=0](), scope: Conv2d
+  %18 : bool = prim::Constant[value=0](), scope: Conv2d
+  %19 : bool = prim::Constant[value=1](), scope: Conv2d
+  %20 : Double(20, 13, 48, 38) = aten::_convolution(%0, %1, %2, %5, %8, %11, %12, %15, %16, %17, %18, %19), scope: Conv2d
+  return (%20)
 )";
 
 void testCodeTemplate() {
@@ -971,6 +1014,26 @@ void testProto() {
   ::ONNX_NAMESPACE::ModelProto proto;
   proto.set_producer_name("foo");
 }
+
+void testIRParser() {
+  // script::IRParser parser{foo};
+  // auto foo = parser.parseGraph();
+  // std::stringstream stm;
+  // stm << *foo;
+  // const auto f2 = stm.str();
+  // script::IRParser parser2{f2};
+  // auto f3 = parser2.parseGraph();
+
+  // std::stringstream stm2;
+  // stm2 << *f3;
+  // const auto foo2 = stm2.str();
+
+  // ASSERT_EQ(f2, foo2);
+
+  script::IRParser parser2{foo2};
+  auto foo2 = parser2.parseGraph();
+}
+
 
 void testCustomOperators() {
   {
