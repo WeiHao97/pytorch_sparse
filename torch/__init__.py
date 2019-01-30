@@ -256,13 +256,6 @@ for name in dir(_C._VariableFunctions):
         continue
     globals()[name] = getattr(_C._VariableFunctions, name)
 
-################################################################################
-# Import interface functions defined in Python
-################################################################################
-
-# needs to be after the above ATen bindings so we can overwrite from Python side
-from .functional import *
-
 
 ################################################################################
 # Remove unnecessary members
@@ -295,6 +288,13 @@ import torch.distributions
 import torch.testing
 import torch.backends.cuda
 import torch.backends.mkl
+
+################################################################################
+# Import interface functions defined in Python
+################################################################################
+
+# needs to be after the above ATen bindings so we can overwrite from Python side
+from .functional import *
 
 _C._init_names(list(torch._storage_classes))
 
