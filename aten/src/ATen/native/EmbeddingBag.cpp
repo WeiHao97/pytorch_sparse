@@ -39,6 +39,7 @@ static void index_select_add(const Tensor &select_indices,
                              const Tensor &add_indices,
                              const Tensor &src,
                              Tensor &output) {
+  AT_ASSERT(select_indices.numel() == add_indices.numel());
   auto add_indices_data = add_indices.data<int64_t>();
   auto select_indices_data = select_indices.data<int64_t>();
   auto src_data = src.data<T>();
@@ -49,6 +50,7 @@ static void index_select_add(const Tensor &select_indices,
   auto src_stride1 = src.stride(1);
   auto output_stride0 = output.stride(0);
   auto output_stride1 = output.stride(1);
+
   for (int64_t i = 0; i < numel; i++) {
     THBlas_axpy<T>(ddim, 1,
             src_data + src_stride0 * select_indices_data[i], src_stride1,
