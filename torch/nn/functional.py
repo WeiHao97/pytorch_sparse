@@ -1530,6 +1530,11 @@ def embedding_bag(input, weight, offsets=None, max_norm=None, norm_type=2,
         sparse (bool, optional): if ``True``, gradient w.r.t. :attr:`weight` will be a sparse tensor. See Notes under
                                  :class:`torch.nn.Embedding` for more details regarding sparse gradients.
                                  Note: this option is not supported when ``mode="max"``.
+        per_input_weights (Tensor, optional): a tensor of float / double weights, or None
+            to indicate all weights should be taken to be 1. If specified, :attr:`per_input_weights`
+            must have exactly the same shape as input and is treated as having the same
+            :attr:`offsets`, if those are not None.
+
 
     Shape:
 
@@ -1575,13 +1580,17 @@ def embedding_bag(input, weight, offsets=None, max_norm=None, norm_type=2,
                       "and should now be `embedding_bag(input, weight, ...)`.")
         weight, input = input, weight
 
+    if per_input_weights is not None and input.size() != per_input_weights.size():
+        raise ValueError("embedding_bag: If per_input_weights ({}) is not None, "
+                         "then it must have the same shape as the input ({})"
+                         .format(per_input_weights.shape, input.shape))
+
     if input.dim() == 2:
         if offsets is not None:
             raise ValueError("if input is 2D, then offsets has to be None"
                              ", as input is treated is a mini-batch of"
                              " fixed length sequences. However, found "
                              "offsets of type {}".format(type(offsets)))
-        else:
             offsets = torch.arange(0, input.numel(), input.size(1),
                                    dtype=torch.long, device=input.device)
 
@@ -1634,7 +1643,8 @@ def embedding_bag(input, weight, offsets=None, max_norm=None, norm_type=2,
         offsets,
         scale_grad_by_freq,
         mode_enum,
-        sparse)
+        sparse,
+        per_input_weights)
     return ret
 
 

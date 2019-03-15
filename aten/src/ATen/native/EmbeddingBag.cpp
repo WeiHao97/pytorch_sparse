@@ -157,9 +157,10 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> embedding_bag_cpu_max(
 std::tuple<Tensor, Tensor, Tensor, Tensor>
 embedding_bag(const Tensor &weight, const Tensor &indices,
               const Tensor &offsets, const bool scale_grad_by_freq,
-              const int64_t mode, bool sparse) {
+              const int64_t mode, bool sparse,
+              const Tensor &per_index_weights) {
   return at::_embedding_bag(weight, indices.contiguous(), offsets.contiguous(),
-                            scale_grad_by_freq, mode, sparse);
+                            scale_grad_by_freq, mode, sparse, per_index_weights);
   };
 
 // Assumes all input tensors except for `weight` are contiguous.
@@ -167,7 +168,8 @@ embedding_bag(const Tensor &weight, const Tensor &indices,
 std::tuple<Tensor, Tensor, Tensor, Tensor>
 _embedding_bag_cpu(const Tensor &weight, const Tensor &indices,
                   const Tensor &offsets, const bool scale_grad_by_freq,
-                  const int64_t mode, bool sparse) {
+                  const int64_t mode, bool sparse,
+                  const Tensor &per_index_weights) {
   auto indices_arg = TensorArg(indices, "indices", 1);
   checkScalarType("embedding_bag", indices_arg, kLong);
   auto offsets_arg = TensorArg(offsets, "offsets", 1);

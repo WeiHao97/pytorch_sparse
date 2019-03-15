@@ -321,7 +321,8 @@ Tensor embedding_bag_backward_cuda_max(const Tensor &grad,
 std::tuple<Tensor, Tensor, Tensor, Tensor>
 _embedding_bag_cuda(const Tensor &weight, const Tensor &indices,
                    const Tensor &offsets, const bool scale_grad_by_freq,
-                   const int64_t mode, bool sparse) {
+                   const int64_t mode, bool sparse,
+                   const Tensor& per_input_weights) {
   auto indices_arg = TensorArg(indices, "indices", 1);
   checkScalarType("embedding_bag_cuda", indices_arg, kLong);
   auto offsets_arg = TensorArg(offsets, "offsets", 1);
