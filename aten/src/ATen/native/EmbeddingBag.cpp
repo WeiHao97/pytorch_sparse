@@ -80,8 +80,6 @@ static void index_select_scale_add(const Tensor &select_indices,
   auto output_stride0 = output.stride(0);
   auto output_stride1 = output.stride(1);
 
-  // TODO(rzou): assert outputs dtype is the same as scale dtype
-  // also assert that scale is 1D
   auto* scale_data = scale.data<T>();
   auto scale_stride = scale.stride(0);
 
@@ -150,7 +148,13 @@ static Tensor apply_bag_size_backward(const Tensor &offsets,
 
 template <typename scalar_t>
 std::tuple<Tensor, Tensor, Tensor, Tensor> embedding_bag_cpu_max(
-  const Tensor& weight, const Tensor &indices, const Tensor& offset2bag, const Tensor& output, const Tensor& bag_size, const Tensor& offsets) {
+    const Tensor& weight,
+    const Tensor& indices,
+    const Tensor& offset2bag,
+    const Tensor& output,
+    const Tensor& bag_size,
+    const Tensor& offsets,
+    at::optional<Tensor> per_input_weights) {
 
     auto max_indices = at::zeros({offsets.size(0), weight.size(1)}, indices.options());
 
@@ -168,15 +172,27 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> embedding_bag_cpu_max(
     auto weight_stride1 = weight.stride(1);
     auto output_stride = output.stride(0);
 
+    optional<scalar_t*> scale_data;
+    optional<int64_t> scale_stride;
+    if (per_input_weights) {
+      scale_data = per_input_weights->data<scalar_t>();
+      scale_stride = per_input_weights->stride(0);
+    }
+
     for (int i = 0; i < numel; i++) {
       auto bag = offset2bag_data[i];
       auto word_idx = indices_data[i];
-
+      optional<scalar_t> scale;
+      if (scale_data) {
+        scale = scale_data.value()[*scale_stride * i];
+      }
 
       for (int dim = 0; dim < dims; dim++) {
         auto& current_item = output_data[output_stride * bag + dim];
         auto weight_item = weight_data[weight_stride0 * word_idx + dim * weight_stride1];
-
+        if (scale) {
+          weight_item *= scale.value();
+        }
         bool is_first_for_bag = (i == 0) || offset2bag_data[i - 1] != bag;
 
         if (is_first_for_bag || weight_item > current_item) {
@@ -219,6 +235,8 @@ _embedding_bag_cpu(const Tensor &weight, const Tensor &indices,
     auto per_input_weights_arg = TensorArg(
         per_input_weights,"per_input_weights", 1);
     checkSameType("embedding_bag", weight_arg, per_input_weights_arg);
+    AT_ASSERT(per_input_weights.dim() == 1);
+    AT_ASSERT(per_input_weights.numel() == indices.numel());
   }
 
   auto bag_size = at::zeros(offsets.sizes(), indices.options());
@@ -249,9 +267,15 @@ _embedding_bag_cpu(const Tensor &weight, const Tensor &indices,
     auto ret = apply_bag_size(offsets, indices, mode, output, bag_size);
     return std::tuple<Tensor, Tensor, Tensor, Tensor>(ret, offset2bag, bag_size, bag_size);
   } else { // MODE_MAX
+    at::optional<Tensor> maybe_per_input_weights;
+    if (per_input_weights.defined()) { 
+      maybe_per_input_weights = per_input_weights;
+    }
     return AT_DISPATCH_FLOATING_TYPES_AND_HALF(
       weight.scalar_type(), "embedding_bag_cpu_max", [&]() {
-        return embedding_bag_cpu_max<scalar_t>(weight, indices, offset2bag, output, bag_size, offsets);
+        return embedding_bag_cpu_max<scalar_t>(
+            weight, indices, offset2bag, output, bag_size, offsets,
+            maybe_per_input_weights);
       }
     );
   }

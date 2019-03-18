@@ -2462,6 +2462,113 @@ class TestNN(NNTestCase):
         self._test_EmbeddingBag(False, 'sum', True)
         self._test_EmbeddingBag(False, 'mean', True)
 
+    @staticmethod
+    def _get_reduction(mode='mean', dim=0):
+        def safe_mean(tensor, dim):
+            if tensor.size(dim) > 0:
+                return tensor.mean(dim)
+            return torch.zeros_like(tensor.mean(dim))
+
+        def safe_max(tensor, dim):
+            if tensor.size(dim) > 0:
+                return tensor.max(dim)[0]
+            return torch.zeros_like(tensor.mean(dim))
+
+        if mode == 'mean':
+            return lambda t: safe_mean(t, dim)
+        elif mode == 'sum':
+            return lambda t: t.sum(dim)
+        elif mode == 'max':
+            return lambda t: safe_max(t, dim)
+        else:
+            assert false
+
+    @staticmethod
+    def _embedding_bag_reference(input, weight, offsets=None, mode='mean',
+                                 per_input_weights=None):
+        assert offsets is not None
+        if per_input_weights is None:
+            per_input_weights = torch.ones(input.size())
+        assert input.numel() == per_input_weights.numel()
+
+        reduction = TestNN._get_reduction(mode)
+        bags = []
+        embeddings = weight.index_select(0, input) * per_input_weights.unsqueeze(1)
+        for index, offset in enumerate(offsets):
+            if index + 1 < len(offsets):
+                next_offset = offsets[index + 1]
+            else:
+                next_offset = len(input)
+            length = next_offset - offset
+            bags.append(reduction(embeddings.narrow(0, offset, length)))
+        return torch.stack(bags)
+
+    def test_EmbeddingBag_forward_per_input_weights_failures(self):
+        # Failure 1: mismatched embeddings / per_input_weights dtype
+        es = nn.EmbeddingBag(5, 2).to(dtype=torch.float)
+        input = torch.tensor([3, 1, 1, 1, 4, 0], dtype=torch.long)
+        offsets = torch.tensor([0, 0, 3, 3, 6], dtype=torch.long)
+        per_input_weights = torch.randn_like(input, dtype=torch.double)
+        with self.assertRaisesRegex(RuntimeError, 'have the same type as'):
+            es(input, offsets, per_input_weights)
+
+        # Failure 2.1: input/per_input_weights have different sizes (1d input)
+        es = nn.EmbeddingBag(5, 2).to(dtype=torch.float)
+        input = torch.tensor([3, 1, 1, 1, 4, 0], dtype=torch.long)
+        offsets = torch.tensor([0, 0, 3, 3, 6], dtype=torch.long)
+        per_input_weights = torch.randn(5, dtype=torch.float)
+        with self.assertRaisesRegex(ValueError, 'same shape as the input'):
+            es(input, offsets, per_input_weights)
+
+        # Failure 2.2: input/per_input_weights have different sizes (2d input)
+        es = nn.EmbeddingBag(5, 2).to(dtype=torch.float)
+        input = torch.randint(5, (7, 3), dtype=torch.long)
+        offsets = None
+        per_input_weights = torch.randn(7 * 3, dtype=torch.float)
+        with self.assertRaisesRegex(ValueError, 'same shape as the input'):
+            es(input, offsets, per_input_weights)
+
+    def test_EmbeddingBag_forward_per_input_weights_and_offsets(self):
+        def test_per_input_weights(mode, dtype, device='cpu'):
+            es = nn.EmbeddingBag(5, 2, mode=mode).to(dtype=dtype, device=device)
+            es.weight.data.copy_(
+                torch.arange(1, 11, device=device, dtype=dtype).view_as(es.weight))
+            input = torch.tensor([3, 1, 1, 1, 4, 0], device=device, dtype=torch.long)
+            offsets = torch.tensor([0, 0, 3, 3, 6], device=device, dtype=torch.long)
+            per_input_weights = torch.randn_like(input, dtype=dtype)
+
+            expected = self._embedding_bag_reference(
+                input, es.weight, offsets, mode, per_input_weights)
+            result = es(input, offsets, per_input_weights)
+            self.assertEqual(result, expected)
+
+        dtypes = (torch.float, torch.double)
+        modes = ('sum', 'mean', 'max')
+        for dtype, mode in itertools.product(dtypes, modes):
+            test_per_input_weights(mode, dtype)
+
+    def test_EmbeddingBag_forward_per_input_weights_and_no_offsets(self):
+        device = 'cpu'
+
+        def test_vs_embedding(N, D, B, L, mode='mean', dtype=torch.float):
+            es = nn.EmbeddingBag(N, D, mode=mode).to(device, dtype)
+            e = nn.Embedding(N, D).to(device, dtype)
+            e.weight.data.copy_(es.weight)
+            input = torch.randint(N, (B, L), device=device, dtype=torch.long)
+            per_input_weights = torch.randn_like(input, device=device, dtype=dtype)
+
+            output = es(input, None, per_input_weights)
+            reduction = self._get_reduction(mode, dim=1)
+            ref_output = reduction(e(input) * per_input_weights.view(B, L, 1))
+
+            self.assertEqual(output, ref_output)
+
+        dtypes = (torch.float, torch.double)
+        modes = ('sum', 'mean', 'max')
+        for dtype, mode in itertools.product(dtypes, modes):
+            test_vs_embedding(3, 5, 7, 11, mode, dtype)
+            test_vs_embedding(3, 5, 51, 21, mode, dtype)
+
     @unittest.skipIf(not TEST_CUDA, "CUDA unavailable")
     @repeat_test_for_types(ALL_TENSORTYPES)
     def test_embedding_bag_cuda(self, dtype=torch.float):
