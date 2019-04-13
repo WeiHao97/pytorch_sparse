@@ -14,12 +14,17 @@ namespace script {
 TORCH_API void import_methods(
     const std::shared_ptr<script::Module>& mod,
     const std::string& src,
-    const std::vector<at::Tensor>& constant_table);
+    const std::vector<at::Tensor>& constant_table,
+    const std::function<void(const std::string&)>& import_callback);
 
 // Defined the list of classes in `src`.
 TORCH_API void import_libs(
+    // Qualifier for any classes that `src` defines. Looks like a module path,
+    // like "foo.bar.baz"
+    const std::string& class_qualifier,
     const std::string& src,
-    const std::vector<at::Tensor>& constant_table);
+    const std::vector<at::Tensor>& constant_table,
+    const std::function<void(const std::string&)>& import_callback);
 
 } // namespace script
 } // namespace jit
