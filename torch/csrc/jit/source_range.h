@@ -1,5 +1,6 @@
 #pragma once
 #include <c10/util/Exception.h>
+#include <c10/util/Color.h>
 #include <torch/csrc/jit/source_location.h>
 
 #include <algorithm>
@@ -23,6 +24,7 @@ struct SourceRange : public SourceLocation {
 
   static const size_t CONTEXT = 10;
   void highlight(std::ostream& out) const override {
+    c10::color::colorize(out);
     const std::string& str = file();
     size_t begin_line = start(); // beginning of line to highlight
     size_t end_line = start(); // end of line to highlight
@@ -56,7 +58,7 @@ struct SourceRange : public SourceLocation {
     out << str.substr(begin_highlight, end_line - begin_highlight) << "\n";
     out << std::string(start() - begin_line, ' ');
     size_t len = std::min(size(), end_line - start());
-    out << std::string(len, '~')
+    out << c10::color::red << std::string(len, '~') << c10::color::reset
         << (len < size() ? "...  <--- HERE" : " <--- HERE");
     out << str.substr(end_line, end_highlight - end_line);
     if (!str.empty() && str.back() != '\n')
