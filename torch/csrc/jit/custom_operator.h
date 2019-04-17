@@ -195,12 +195,6 @@ Operator createOperator(
   // it is fragile and hard to maintain. When we provide a way for op
   // registration to specify alias annotations, we should fix up builtins to
   // use that and remove all references to this note.
-  Symbol name = Symbol::fromQualString(schema.name());
-  if (name.is_aten() || name.is_prim() || name.is_onnx()) {
-    AT_ERROR(
-        "Tried to register a custom operator to a reserved namespace: ",
-        name.ns().toUnqualString());
-  }
 
   return Operator(
       schema,

@@ -1861,22 +1861,6 @@ RegisterOperators reg2({
     DEFINE_INT_OP(aten::__xor__, a ^ b),
 
     Operator(
-        "prim::abs(int x) -> int",
-        [](Stack& stack) {
-          int64_t x;
-          pop(stack, x);
-          push(stack, std::abs(x));
-          return 0;
-        }),
-    Operator(
-        "prim::abs(float x) -> float",
-        [](Stack& stack) {
-          float x;
-          pop(stack, x);
-          push(stack, std::abs(x));
-          return 0;
-        }),
-    Operator(
         "prim::abs(Tensor x) -> Tensor",
         [](Stack& stack) {
           at::Tensor x;
@@ -1900,127 +1884,6 @@ RegisterOperators reg2({
           double a, b;
           pop(stack, a, b);
           push(stack, a / b);
-          return 0;
-        }),
-
-    Operator(
-        "aten::pow(float a, float b) -> float",
-        [](Stack& stack) {
-          double a, b;
-          pop(stack, a, b);
-          push(stack, std::pow(a, b));
-          return 0;
-        }),
-    Operator(
-        "aten::pow(float a, int b) -> float",
-        [](Stack& stack) {
-          double a;
-          int b;
-          pop(stack, a, b);
-          push(stack, std::pow(a, b));
-          return 0;
-        }),
-
-    Operator(
-        "aten::floor(float a) -> float",
-        [](Stack& stack) {
-          double a;
-          pop(stack, a);
-          push(stack, std::floor(a));
-          return 0;
-        }),
-
-    Operator(
-        "aten::ceil(float a) -> float",
-        [](Stack& stack) {
-          double a;
-          pop(stack, a);
-          push(stack, std::ceil(a));
-          return 0;
-        }),
-
-    Operator(
-        "aten::log(float a) -> float",
-        [](Stack& stack) {
-          double a;
-          pop(stack, a);
-          push(stack, std::log(a));
-          return 0;
-        }),
-    Operator(
-        "aten::log(int a) -> float",
-        [](Stack& stack) {
-          int64_t a;
-          pop(stack, a);
-          push(stack, std::log(a));
-          return 0;
-        }),
-
-    Operator(
-        "aten::log1p(float a) -> float",
-        [](Stack& stack) {
-          double a;
-          pop(stack, a);
-          push(stack, std::log1p(a));
-          return 0;
-        }),
-    Operator(
-        "aten::log1p(int a) -> float",
-        [](Stack& stack) {
-          int64_t a;
-          pop(stack, a);
-          push(stack, std::log1p(a));
-          return 0;
-        }),
-
-    Operator(
-        "aten::log10(float a) -> float",
-        [](Stack& stack) {
-          double a;
-          pop(stack, a);
-          push(stack, std::log10(a));
-          return 0;
-        }),
-    Operator(
-        "aten::log10(int a) -> float",
-        [](Stack& stack) {
-          int64_t a;
-          pop(stack, a);
-          push(stack, std::log10(a));
-          return 0;
-        }),
-
-    Operator(
-        "aten::exp(float a) -> float",
-        [](Stack& stack) {
-          double a;
-          pop(stack, a);
-          push(stack, std::exp(a));
-          return 0;
-        }),
-    Operator(
-        "aten::exp(int a) -> float",
-        [](Stack& stack) {
-          int64_t a;
-          pop(stack, a);
-          push(stack, std::exp(a));
-          return 0;
-        }),
-
-    Operator(
-        "aten::sqrt(float a) -> float",
-        [](Stack& stack) {
-          double a;
-          pop(stack, a);
-          push(stack, std::sqrt(a));
-          return 0;
-        }),
-    Operator(
-        "aten::sqrt(int a) -> float",
-        [](Stack& stack) {
-          int64_t a;
-          pop(stack, a);
-          push(stack, std::sqrt(a));
           return 0;
         }),
 
@@ -2127,6 +1990,42 @@ RegisterOperators reg2({
     Operator("aten::hash(int t) -> int", hashValue<int>),
     Operator("aten::hash(float t) -> int", hashValue<double>),
 });
+
+auto pure_op = OperatorOptions().aliasAnalysis(AliasAnalysisKind::PURE);
+
+auto math_ops =
+    RegisterOperators()
+        // the static_cast<...> business is to select a specific overload
+        .op("aten::abs", static_cast<int64_t (*)(int64_t)>(&std::abs), pure_op)
+        .op("aten::abs", static_cast<double (*)(double)>(&std::abs), pure_op)
+        .op("aten::floor",
+            static_cast<double (*)(double)>(&std::floor),
+            pure_op)
+        .op("aten::pow",
+            static_cast<double (*)(double, double)>(&std::pow),
+            pure_op)
+        .op("aten::pow",
+            static_cast<double (*)(double, int64_t)>(&std::pow),
+            pure_op)
+        .op("aten::exp", static_cast<double (*)(int64_t)>(&std::exp), pure_op)
+        .op("aten::exp", static_cast<double (*)(double)>(&std::exp), pure_op)
+        .op("aten::sqrt", static_cast<double (*)(int64_t)>(&std::sqrt), pure_op)
+        .op("aten::sqrt", static_cast<double (*)(double)>(&std::sqrt), pure_op)
+        .op("aten::log10",
+            static_cast<double (*)(int64_t)>(&std::log10),
+            pure_op)
+        .op("aten::log10",
+            static_cast<double (*)(double)>(&std::log10),
+            pure_op)
+        .op("aten::log1p",
+            static_cast<double (*)(int64_t)>(&std::log1p),
+            pure_op)
+        .op("aten::log1p",
+            static_cast<double (*)(double)>(&std::log1p),
+            pure_op)
+        .op("aten::ceil", static_cast<double (*)(double)>(&std::ceil), pure_op)
+        .op("aten::log", static_cast<double (*)(int64_t)>(&std::log), pure_op)
+        .op("aten::log", static_cast<double (*)(double)>(&std::log), pure_op);
 
 // reference: _output_size in torch/nn/functional.py
 // size can be none, int or intlist
