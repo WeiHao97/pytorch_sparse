@@ -1229,6 +1229,14 @@ if _enabled:
                     object.__setattr__(self, name, item)
                 elif isinstance(item, Parameter) or (isinstance(item, Module) and item is not self):
                     ScriptModule.__setattr__(self, name, item)
+                else:
+                    # if we can, register it as an attribute
+                    supported_types = [int, str, float]
+                    for supported_type in supported_types:
+                        if isinstance(item, supported_type):
+                            attr = Attribute(item, supported_type)
+                            ScriptModule.__setattr__(self, name, attr)
+                            break
             for name in original._buffers:
                 if original._buffers[name] is None:
                     object.__setattr__(self, name, None)
