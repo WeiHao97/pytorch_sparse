@@ -470,15 +470,36 @@ bool Type::isSubtypeOf(const TypePtr rhs) const {
 }
 
 namespace {
+// Equality on the full qualified string
+struct QualNameEq {
+  bool operator()(const QualifiedNamePtr& lhs, const QualifiedNamePtr& rhs)
+      const {
+    if (!lhs) {
+      return !rhs;
+    }
+    return lhs->equals(rhs);
+  }
+};
+
+// Hash on the base name
+struct QualNameHash {
+  size_t operator()(const QualifiedNamePtr& k) const {
+    if (k) {
+      return std::hash<std::string>()(k->name_);
+    }
+    return 0;
+  }
+};
+
 class ClassTypeRegistry {
  public:
-  void registerType(std::string name, ClassTypePtr type) {
+  void registerType(QualifiedNamePtr name, ClassTypePtr type) {
     std::lock_guard<std::mutex> g(mutex_);
     // TODO: new type registrations will override the old ones. Is this safe?
     reg_[name] = type;
   }
 
-  ClassTypePtr getType(const std::string& name) {
+  ClassTypePtr getType(QualifiedNamePtr name) {
     std::lock_guard<std::mutex> g(mutex_);
     if (reg_.count(name)) {
       return reg_.at(name);
@@ -493,7 +514,12 @@ class ClassTypeRegistry {
 
  private:
   std::mutex mutex_;
-  std::unordered_map<std::string, ClassTypePtr> reg_;
+  std::unordered_map<
+      QualifiedNamePtr,
+      ClassTypePtr,
+      QualNameHash,
+      QualNameEq>
+      reg_;
 };
 
 ClassTypeRegistry& getRegistry() {
@@ -503,7 +529,7 @@ ClassTypeRegistry& getRegistry() {
 } // namespace
 
 ClassTypePtr ClassType::create(
-    const std::string& qualifiedName,
+    QualifiedNamePtr qualifiedName,
     std::shared_ptr<CompilationUnit> cu) {
   auto ptr = ClassTypePtr(new ClassType(qualifiedName, std::move(cu)));
   getRegistry().registerType(qualifiedName, ptr);
@@ -511,11 +537,13 @@ ClassTypePtr ClassType::create(
 }
 
 ClassTypePtr ClassType::createModuleType(std::shared_ptr<CompilationUnit> cu) {
-  return ClassTypePtr(new ClassType("__torch__.Module", std::move(cu)));
+  return ClassTypePtr(new ClassType(
+      QualifiedName::create(QualifiedName::create("__torch__"), "Module"),
+      std::move(cu)));
 }
 
 ClassTypePtr ClassType::refine(at::ArrayRef<TypePtr> refined_slots) const {
-  auto ptr = ClassTypePtr(new ClassType(qualifiedName_, compilation_unit_));
+  auto ptr = ClassTypePtr(new ClassType(name_, compilation_unit_));
   AT_ASSERT(numAttributes() == refined_slots.size());
   for(size_t i = 0; i < attributeNames_.size(); ++i) {
     AT_ASSERT(refined_slots[i]->isSubtypeOf(attributeTypes_[i]));
@@ -524,8 +552,8 @@ ClassTypePtr ClassType::refine(at::ArrayRef<TypePtr> refined_slots) const {
   return ptr;
 }
 
-ClassTypePtr ClassType::get(const std::string& qualifiedName) {
-  return getRegistry().getType(qualifiedName);
+ClassTypePtr ClassType::get(QualifiedNamePtr name) {
+  return getRegistry().getType(name);
 }
 
 void ClassType::clearRegistry() {
@@ -578,27 +606,10 @@ std::ostream& operator<<(std::ostream & out, const VaryingShape & vs) {
 }
 
 ClassType::ClassType(
-    std::string qualifiedName,
+    QualifiedNamePtr name,
     std::shared_ptr<CompilationUnit> cu)
     : Type(TypeKind::ClassType),
-      qualifiedName_(std::move(qualifiedName)),
-      compilation_unit_(std::move(cu)) {
-  // Compute the base name based on the qualified name
-  const auto pos = qualifiedName_.rfind('.');
-  if (pos == std::string::npos) {
-    // If there are no delimiters, the qualname and name are the same
-    basename_ = qualifiedName_;
-  } else {
-    AT_ASSERTM(
-        pos < qualifiedName_.size() - 1,
-        "'.' can't be the last character in qualified name: ",
-        qualifiedName_);
-
-    // Otherwise take the name that trails the last '.'
-    basename_ = qualifiedName_.substr(pos + 1);
-    qualifier_ = qualifiedName_.substr(0, pos);
-  }
-  AT_ASSERT(qualifier_ + "." + basename_ == qualifiedName_);
-}
+      name_(std::move(name)),
+      compilation_unit_(std::move(cu)) {}
 
 } // namespace c10
