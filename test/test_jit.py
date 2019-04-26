@@ -11606,10 +11606,12 @@ a")
                 self.list = torch.jit.Attribute([(1, 2), (3, 4)], List[Tuple[int, int]])
                 self.tensor = torch.jit.Attribute(tensor, torch.Tensor)
                 self.int_list = torch.jit.Attribute([1, 2, 3, 4], List[int])
+                self.tensor_list = torch.jit.Attribute([torch.randn(2, 2), torch.randn(2, 2)], List[torch.Tensor])
+                self.float_list = torch.jit.Attribute([1., 2., 3., 4.], List[float])
 
             @torch.jit.script_method
             def forward(self):
-                return (self.table, self.float, self.int, self.tuple, self.list, self.int_list)
+                return (self.table, self.float, self.int, self.tuple, self.list, self.int_list, self.tensor_list, self.float_list)
 
         with TemporaryFileName() as fname:
             M().save(fname)

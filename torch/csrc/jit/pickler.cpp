@@ -87,6 +87,10 @@ void Pickler::addIValue(const IValue& ivalue) {
     push<OpCode>(OpCode::NONE);
   } else if (ivalue.isIntList()) {
     pushIntList(ivalue);
+  } else if (ivalue.isTensorList()) {
+    pushTensorList(ivalue);
+  } else if (ivalue.isDoubleList()) {
+    pushDoubleList(ivalue);
   } else {
     AT_ERROR("Unknown IValue type for pickling: ", ivalue.tagKind());
   }
@@ -182,24 +186,34 @@ void Pickler::pushTensor(const IValue& ivalue) {
 }
 
 void Pickler::pushIntList(const IValue& ivalue) {
-  pushClass(PicklerClass::INTLIST);
+  pushReduce(PicklerClass::INTLIST, ivalue, [=](const IValue& ivalue) {
+    pushList(ivalue, ivalue.toIntListRef());
+  });
+}
 
+void Pickler::pushDoubleList(const IValue& ivalue) {
+  pushReduce(PicklerClass::DOUBLELIST, ivalue, [=](const IValue& ivalue) {
+    pushList(ivalue, ivalue.toDoubleListRef());
+  });
+}
+
+void Pickler::pushTensorList(const IValue& ivalue) {
+  pushReduce(PicklerClass::TENSORLIST, ivalue, [=](const IValue& ivalue) {
+    pushList(ivalue, ivalue.toTensorListRef());
+  });
+}
+
+void Pickler::pushReduce(
+    PicklerClass cls,
+    const IValue& ivalue,
+    std::function<void(const IValue&)> reduce_arg_pusher) {
+  pushClass(cls);
 
   // Reduce arguments are spread (e.g. `*args`) before calling the global,
   // so wrap in a tuple
   push<OpCode>(OpCode::MARK);
 
-  push<OpCode>(OpCode::EMPTY_LIST);
-  // Mark list
-  push<OpCode>(OpCode::MARK);
-
-  // Add items
-  for (const auto& item : ivalue.toIntListRef()) {
-    addIValue(item);
-  }
-
-  // Finish list
-  push<OpCode>(OpCode::APPENDS);
+  reduce_arg_pusher(ivalue);
 
   // Finish tuple
   push<OpCode>(OpCode::TUPLE);
@@ -264,18 +278,8 @@ void Pickler::pushMemoization(const IValue& ivalue) {
   pushMemoization(getPointer(ivalue));
 }
 
-void Pickler::pushList(const IValue& ivalue) {
-  auto list = ivalue.toGenericListRef();
-  push<OpCode>(OpCode::EMPTY_LIST);
-  pushMemoization(ivalue);
-
-  push<OpCode>(OpCode::MARK);
-
-  for (const auto& item : list) {
-    addIValue(item);
-  }
-
-  push<OpCode>(OpCode::APPENDS);
+void Pickler::pushGenericList(const IValue& ivalue) {
+  pushList(ivalue, ivalue.toGenericListRef());
 }
 
 void Pickler::pushTuple(const IValue& ivalue) {

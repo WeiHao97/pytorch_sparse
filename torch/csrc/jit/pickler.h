@@ -109,12 +109,19 @@ class Pickler {
   void pushDouble(const IValue& ivalue);
   void pushMemoization(const void* item);
   void pushMemoization(const IValue& ivalue);
-  void pushList(const IValue& ivalue);
+  void pushGenericList(const IValue& ivalue);
   void pushIntList(const IValue& ivalue);
+  void pushTensorList(const IValue& ivalue);
+  void pushDoubleList(const IValue& ivalue);
   void pushTuple(const IValue& ivalue);
   void pushDict(const IValue& ivalue);
   void pushClass(PicklerClass cls);
   void pushInt(const IValue& ivalue);
+
+  void pushReduce(
+      PicklerClass cls,
+      const IValue& ivalue,
+      std::function<void(const IValue&)> reduce_arg_pusher);
   const void* getPointer(const IValue& ivalue);
 
   // These convert values to bytes and add them to the stack (NB: since T is to
@@ -125,6 +132,19 @@ class Pickler {
   void push(typename std::common_type<T>::type value) {
     const char* begin = reinterpret_cast<const char*>(&value);
     stack_.insert(stack_.end(), begin, begin + sizeof(T));
+  }
+
+  // Push a std::vector to the stack
+  template <typename Elem>
+  void pushList(const IValue& ivalue, const std::vector<Elem>& list) {
+    push<OpCode>(OpCode::EMPTY_LIST);
+    push<OpCode>(OpCode::MARK);
+
+    for (const auto& item : list) {
+      addIValue(item);
+    }
+
+    push<OpCode>(OpCode::APPENDS);
   }
 
   // Stack of opcodes/data
