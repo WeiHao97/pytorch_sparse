@@ -268,7 +268,7 @@ void Pickler::pushLiteralTensor(const IValue& ivalue) {
   push<OpCode>(OpCode::BINPERSID);
 
   // storage offset
-  int64_t storage_offset = 0;
+  int64_t storage_offset = tensor.storage_offset();
   pushInt(storage_offset);
 
   // size
