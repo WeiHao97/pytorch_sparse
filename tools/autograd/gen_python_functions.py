@@ -30,7 +30,7 @@ SKIP_PYTHON_BINDINGS = [
     '_cholesky.*', '_triangular_solve.*',
     'slice', 'randint(_out)?',
     'item', '_local_scalar_dense', 'to',
-    'copy_sparse_to_sparse_', 'copy_',
+    'copy_sparse_to_sparse_', 'copy_', 'null_c10', 'null4_c10', 'null_back_c10',
 ]
 
 # These function signatures are not exposed to Python. Note that this signature
@@ -379,7 +379,9 @@ def create_python_bindings(python_functions, has_self, is_module=False):
                 expr = 'SparseTensorRef({})'.format(expr)
 
             dispatch_type = typename
-            if dispatch_type == 'Tensor':
+            if "null" in declaration['name'] and dispatch_type == 'Tensor':
+                dispatch_type = 'Tensor'
+            elif dispatch_type == 'Tensor':
                 dispatch_type = 'const Tensor &'
             elif dispatch_type == 'Tensor &':
                 dispatch_type = 'Tensor'
@@ -489,9 +491,15 @@ def create_python_bindings(python_functions, has_self, is_module=False):
             env['initialize_cuda'] = ''
 
         if 'call_args' in declaration:
-            env['dispatch_args'] = declaration['call_args']
+            if 'null' in declaration['name']:
+                env['dispatch_args'] = ['std::move({})'.format(arg) for arg in declaration['call_args']]
+            else:
+                env['dispatch_args'] = declaration['call_args']
         else:
-            env['dispatch_args'] = [arg['name'] for arg in declaration['arguments']]
+            if 'null' in declaration['name']:
+                env['dispatch_args'] = ['std::move({})'.format(arg['name']) for arg in declaration['arguments']]
+            else:
+                env['dispatch_args'] = [arg['name'] for arg in declaration['arguments']]
 
         if 'Tensor' in declaration['method_of']:
             env['dispatch_args'] = [arg for arg in env['dispatch_args'] if arg != 'self']
