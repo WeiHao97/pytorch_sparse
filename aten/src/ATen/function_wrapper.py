@@ -70,6 +70,24 @@ PURE_VIRTUAL_TYPE_METHOD_DECLARATION_BROADCAST = CodeTemplate("""\
 virtual ${return_type} ${api_name}(${type_method_formals}) const = 0;
 """)
 
+# For functions that use the c10 dispatcher, we define static methods and register them
+TYPE_METHOD_DEFINITION_CONCRETE_C10 = CodeTemplate("""\
+static ${return_type} ${api_name}_${id}(${type_method_formals}) {
+    ${device_guard_declaration}
+    ${type_definition_body}
+}
+""")
+C10_REGISTRATION = CodeTemplate("""\
+static auto registry_${id} = c10::RegisterOperators()
+    .op("${schema_string}", kernel<decltype(${api_name}_${id}), &${api_name}_${id}>());
+""")
+C10_REGISTRATION_BY_KEY = CodeTemplate("""\
+static auto registry_${id} = c10::RegisterOperators()
+    .op("${schema_string}",
+        kernel<decltype(${api_name}_${id}), &${api_name}_${id}>(),
+        dispatchKey(${Backend}TensorId()));
+""")
+
 TYPE_METHOD_DECLARATION_ABSTRACT = CodeTemplate("""\
 ${return_type} ${method_prefix_derived}${api_name}(${type_method_formals}) const override;
 """)
@@ -136,10 +154,19 @@ ${return_type} ${Type}::${api_name}(${type_method_formals}) const {
 TYPE_DEFINITION_BODY_NATIVE = CodeTemplate("""\
 ${return_call} at::native::${native_type_method_dispatch}(/* native_actuals */ ${native_actuals});
 """)
+TYPE_DEFINITION_BODY_NATIVE_C10 = CodeTemplate("""\
+${return_call} at::native::${native_type_method_dispatch}(/* native_actuals */ ${moved_native_actuals});
+""")
 
 # Overrideable stubs to be used in user-extendable backends
 TYPE_DEFINITION_EXTENSION_BACKEND = CodeTemplate("""\
 ${return_type} ${Type}::${method_prefix_derived}${api_name}(${type_method_formals}) const {
+    return ${Type}Dispatch::get_function<${return_type} (*)(${formals_types})>("${schema}")(${native_actuals});
+}
+""")
+
+TYPE_DEFINITION_EXTENSION_BACKEND_C10 = CodeTemplate("""\
+static ${return_type} ${method_prefix_derived}${api_name}_${id}(${type_method_formals}) {
     return ${Type}Dispatch::get_function<${return_type} (*)(${formals_types})>("${schema}")(${native_actuals});
 }
 """)
@@ -163,6 +190,18 @@ DEPRECATED_FUNCTION_DECLARATION = CodeTemplate("""\
 C10_DEPRECATED static inline ${return_type} ${api_name}(${formals_with_defaults});
 """)
 # add method definition in Functions.h
+FUNCTION_DEFINITION_C10 = CodeTemplate("""\
+static inline ${return_type} ${api_name}(${formals}) {
+    static auto op = c10::Dispatcher::singleton().findSchema("aten::${api_name}", "");
+    AT_CHECK(op.has_value(), "Schema ${schema_string} is not registered");
+    static torch::jit::Stack s;
+    s.clear();
+    s.reserve(10);
+    torch::jit::push(s, ${stack_args});
+    c10::Dispatcher::singleton().callOp(*op, &s);
+    return torch::jit::pop(s).toTensor();
+}
+""")
 FUNCTION_DEFINITION = CodeTemplate("""\
 static inline ${return_type} ${api_name}(${formals}) {
     return ${inferred_type}.${api_name}(${type_method_actuals});
@@ -434,6 +473,7 @@ TopEnvironment = TypedDict('TopEnvironment', {
     'function_definitions': List[str],
     'type_ids': List[str],
     'native_function_declarations': List[str],
+    'c10_registrations': List[str],
 })
 
 # A Declarations.cwrap formal argument
@@ -544,6 +584,8 @@ FunctionOption = TypedDict('FunctionOption', {
     'formals_with_defaults': List[str],
     'formals': List[str],
     'formals_types': List[str],
+    # unique id to generate unique names for c10 registration
+    'id': int,
     'inferred_type': str,
     'inplace': bool,
     'matches_jit_signature': bool,
@@ -575,6 +617,7 @@ FunctionOption = TypedDict('FunctionOption', {
     'type_method_actuals': List[str],
     'type_method_definition_dispatch': str,
     'type_method_formals': List[str],
+    'use_c10_dispatcher': bool,
     'variants': str,
     'when_spares_dispatch': str,
     'when_sparse_dispatch': str,
@@ -585,7 +628,9 @@ FunctionOption = TypedDict('FunctionOption', {
 
 OutputDeclaration = NamedTuple('OutputDeclaration', [
     ('name', str),
+    ('id', int),
     ('matches_jit_signature', bool),
+    ('use_c10_dispatcher', bool),
     ('schema_string', str),
     ('method_prefix_derived', str),
     ('arguments', List[AtFormal]),
@@ -973,7 +1018,9 @@ def create_generic(top_env, declarations):
 
         output_options.append(OutputDeclaration(
             name=option['api_name'],
+            id=option['id'],
             matches_jit_signature=option['matches_jit_signature'],
+            use_c10_dispatcher=False,
             schema_string=option['schema_string'],
             method_prefix_derived=option['method_prefix_derived'],
             arguments=formals,
@@ -1032,10 +1079,21 @@ def create_generic(top_env, declarations):
                     'TensorList': 'TensorList',
                 }
 
+            def translate_map_c10():
+                # type: (bool) -> Dict[str, str]
+                return {
+                    'Tensor': 'Tensor',
+                    'Type': 'Type',
+                    'TensorOptions': 'TensorOptions',
+                    'TensorList': 'TensorList',
+                }
+
             if argument.get('is_nullable') and argument['type'] not in translate_map(False).keys():
                 argument['type'] = "c10::optional<{}>".format(argument['type'])
 
-            if (option['inplace'] and argument['name'] == 'self') or argument.get('output', False):
+            if option['use_c10_dispatcher']:
+                argument['type'] = translate_map_c10().get(argument['type'], argument['type'])
+            elif (option['inplace'] and argument['name'] == 'self') or argument.get('output', False):
                 argument['type'] = translate_map(False).get(argument['type'], argument['type'])
             else:
                 argument['type'] = translate_map(True).get(argument['type'], argument['type'])
@@ -1147,13 +1205,15 @@ def create_generic(top_env, declarations):
             raise Exception("broadcasting is not yet supported for native functions, "
                             "but specified for function {}", option['name'])
 
-        if option['extended_method']:
-            top_env['pure_virtual_extended_type_method_declarations'].append(
-                PURE_VIRTUAL_TYPE_METHOD_DECLARATION.substitute(env))
-        else:
-            top_env['pure_virtual_type_method_declarations'].append(
-                PURE_VIRTUAL_TYPE_METHOD_DECLARATION.substitute(env))
-        top_env['type_method_declarations'].append(TYPE_METHOD_DECLARATION_CONCRETE.substitute(env))
+        use_c10 = option['use_c10_dispatcher']
+        if not use_c10:
+            if option['extended_method']:
+                top_env['pure_virtual_extended_type_method_declarations'].append(
+                    PURE_VIRTUAL_TYPE_METHOD_DECLARATION.substitute(env))
+            else:
+                top_env['pure_virtual_type_method_declarations'].append(
+                    PURE_VIRTUAL_TYPE_METHOD_DECLARATION.substitute(env))
+            top_env['type_method_declarations'].append(TYPE_METHOD_DECLARATION_CONCRETE.substitute(env))
         option['native_type_method_dispatch'] = type_method_dispatch
 
         # Note [Abstract ATen methods]
@@ -1170,10 +1230,24 @@ def create_generic(top_env, declarations):
             top_env['type_method_definitions'].append(
                 TYPE_METHOD_DEFINITION_ABSTRACT.substitute(env))
         else:
-            body = TYPE_DEFINITION_BODY_NATIVE.substitute(env)
-            top_env['type_method_definitions'].append(
-                TYPE_METHOD_DEFINITION_CONCRETE.substitute(
-                    env, type_definition_body=body))
+            if use_c10:
+                moved_native_actuals = []
+                for f in formals:
+                    if f['dynamic_type'] == 'Tensor':
+                        moved_native_actuals.append('std::move({})'.format(f['name']))
+                    else:
+                        moved_native_actuals.append(f['name'])
+                body = TYPE_DEFINITION_BODY_NATIVE_C10.substitute(env, moved_native_actuals=moved_native_actuals)
+                top_env['type_method_definitions'].append(
+                    TYPE_METHOD_DEFINITION_CONCRETE_C10.substitute(
+                        env, type_definition_body=body))
+                top_env['c10_registrations'].append(
+                    C10_REGISTRATION.substitute(env))
+            else:
+                body = TYPE_DEFINITION_BODY_NATIVE.substitute(env)
+                top_env['type_method_definitions'].append(
+                    TYPE_METHOD_DEFINITION_CONCRETE.substitute(
+                        env, type_definition_body=body))
 
         # generate the at::native function declarations (i.e. what the user will implement)
         if isinstance(type_method_dispatch, dict):
@@ -1207,12 +1281,23 @@ def create_generic(top_env, declarations):
                 option['inferred_type'] = 'at::getNonVariableType(at::Backend::Undefined, at::ScalarType::Float)'
             declaration = DEPRECATED_FUNCTION_DECLARATION if option['deprecated'] else FUNCTION_DECLARATION
             top_env['function_declarations'].append(declaration.substitute(env))
-            top_env['function_definitions'].append(FUNCTION_DEFINITION.substitute(env))
+            if option['use_c10_dispatcher']:
+                stack_args = []
+                for f in formals:
+                    if f['dynamic_type'] == 'Tensor':
+                        stack_args.append('std::move({})'.format(f['name']))
+                    else:
+                        stack_args.append(f['name'])
+                top_env['function_definitions'].append(FUNCTION_DEFINITION_C10.substitute(env, stack_args=stack_args))
+            else:
+                top_env['function_definitions'].append(FUNCTION_DEFINITION.substitute(env))
             method_of.append('namespace')
 
         output_options.append(OutputDeclaration(
             name=option['api_name'],
+            id=option['id'],
             matches_jit_signature=option["matches_jit_signature"],
+            use_c10_dispatcher=option['use_c10_dispatcher'],
             schema_string=option["schema_string"],
             method_prefix_derived=option['method_prefix_derived'],
             arguments=formals,
@@ -1231,12 +1316,15 @@ def create_generic(top_env, declarations):
             deprecated=option['deprecated'],
         ))
 
+    i = 0
     output_declarations = []  # type: List[OutputDeclaration]
     for declaration in declarations:
         output_options = []  # type: List[OutputDeclaration]
         for option in declaration['options']:
             option["matches_jit_signature"] = declaration["matches_jit_signature"]
             option["schema_string"] = declaration["schema_string"]
+            option["id"] = i
+            i += 1
             try:
                 if option['mode'] != 'native':
                     process_option(option, output_options)
@@ -1681,13 +1769,14 @@ def create_derived(backend_type_env, declarations):
 
 
 def create_extension_backend(backend_type_env, declarations):
-    # type: (Environment, List[FunctionOption]) -> Tuple[List[str], List[str]]
+    # type: (Environment, List[FunctionOption]) -> Tuple[List[str], List[str], List[str]]
     type_object_declarations = []
     type_object_definitions = []
+    c10_registrations = []
 
     for declaration in declarations:
         for option in declaration['options']:
-            if not option.get('skip', False):
+            if not option.get('skip', False) and option['mode'] == 'native':
                 try:
                     option['formals_types'] = [f['type'] for f in option['formals_list']]
                     option['native_actuals'] = [f['name'] for f in option['formals_list']]
@@ -1696,10 +1785,16 @@ def create_extension_backend(backend_type_env, declarations):
                     return_type = NATIVE_DYNAMIC_TYPE.get(option['return_type'], option['return_type'])
                     option['schema'] = "{}({}) -> {}".format(option['api_name'], schema_args, return_type)
                     env = nested_dict(option, backend_type_env)
-                    type_object_declarations.append(
-                        TYPE_DERIVED_DECLARATION.substitute(env))
-                    type_object_definitions.append(
-                        TYPE_DEFINITION_EXTENSION_BACKEND.substitute(env))
+                    if option['use_c10_dispatcher']:
+                        type_object_definitions.append(
+                            TYPE_DEFINITION_EXTENSION_BACKEND_C10.substitute(env))
+                        c10_registrations.append(
+                            C10_REGISTRATION_BY_KEY.substitute(env))
+                    else:
+                        type_object_declarations.append(
+                            TYPE_DERIVED_DECLARATION.substitute(env))
+                        type_object_definitions.append(
+                            TYPE_DEFINITION_EXTENSION_BACKEND.substitute(env))
                 except NYIError:
                     pass
-    return type_object_declarations, type_object_definitions
+    return type_object_declarations, type_object_definitions, c10_registrations
