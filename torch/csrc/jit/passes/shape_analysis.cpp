@@ -1677,6 +1677,15 @@ class ShapePropagator {
       std::swap(strides.at(0), strides.at(1));
       node->output()->setType(tp->withSizesStrides(sizes, strides));
       return true;
+    } else if (node->matches("aten::linear(Tensor input, Tensor weight, Tensor? bias) -> Tensor")) {
+      auto input_type = tensor_types.at(0);
+      auto sizes = input_type->sizes();
+      auto weight_type = tensor_types.at(1);
+      int64_t last_dim = sizes.size() - 1;
+      SHAPE_ASSERT(weight_type->sizes().size() == 2 && sizes.size() >= 2);
+      sizes.at(last_dim) = weight_type->sizes()[0];
+      node->output()->setType(input_type->withSizes(sizes));
+      return true;
     } else if (
         node->matches(
             "aten::narrow(Tensor self, int dim, int start, int length) -> Tensor",

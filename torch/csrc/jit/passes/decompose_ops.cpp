@@ -84,8 +84,39 @@ bool DecomposeOps(Block* block, script::CompilationUnit& decompose_funcs) {
     for (auto sub : it->blocks()) {
       DecomposeOps(sub, decompose_funcs);
     }
+    if (it->matches("aten::linear(Tensor input, Tensor weight, Tensor? bias) -> Tensor")) {
+      Value* input = it->namedInput(attr::input);
+      Value* weight = it->namedInput(attr::weight);
+      Value* bias = it->namedInput(attr::bias);
+      auto input_type = input->type()->cast<DimensionedTensorType>();
+      if (!input_type) {
+        // if the input type is not specialized, don't do decomposition
+        continue;
+      }
 
-    if (it->matches(
+      decomposed = true;
+      WithInsertPoint guard(*it);
+
+      Graph* graph = it->owningGraph();
+      std::shared_ptr<Graph> d_graph;
+      int ndim = input_type->dim();
+      Value* new_output = nullptr;
+      if (ndim == 2 && bias->type()->isSubtypeOf(TensorType::get())) {
+        // if ndim == 2 and bias is statically defined, dispatch to addmm decomposition
+        Value* transposed_weight = graph->insert(aten::t, {weight});
+        Value* one = graph->insertConstant(1);
+        std::vector<Value*> inputs{bias, input, transposed_weight, one, one};
+        d_graph = decompose_funcs.get_function("addmm").graph();
+        new_output = inlineCallTo(*it->owningGraph(), *d_graph, inputs).at(0);
+      } else {
+        // otherwise dispatch to normal linear decomposition
+        d_graph = decompose_funcs.get_function("linear").graph();
+        new_output = inlineCallTo(*it->owningGraph(), *d_graph, it->inputs()).at(0);
+      }
+      new_output->setType(it->output()->type());
+      it->output()->replaceAllUsesWith(new_output);
+      it.destroyCurrent();
+    } else if (it->matches(
           "aten::addmm(Tensor self, Tensor mat1, Tensor mat2, *, Scalar beta, Scalar alpha) -> Tensor",
           /*const_inputs=*/{attr::beta, attr::alpha})) {
       // For the case where we have an addmm where alpha and beta are Attributes
@@ -182,6 +213,12 @@ bool DecomposeOps(Block* block, script::CompilationUnit& decompose_funcs) {
 
 void DecomposeOps(std::shared_ptr<Graph>& graph) {
   static script::CompilationUnit decompose_funcs(R"SCRIPT(
+      def linear(input: Tensor, weight: Tensor, bias: Optional[Tensor]):
+          output = input.matmul(weight.t())
+          if bias is not None:
+              output += bias
+          return output
+
       def addmm(self: Tensor, mat1: Tensor, mat2: Tensor, beta: number = 1.0, alpha: number = 1.0):
           return self + mat1.mm(mat2)
 
