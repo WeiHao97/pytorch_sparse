@@ -765,8 +765,6 @@ class TestDataLoader(TestCase):
 
     @skipIfRocm
     @unittest.skipIf(not HAS_PSUTIL, "psutil not found")
-    @unittest.skipIf(sys.version_info[0] < 3,
-                     "this test is flaky in py2, see https://github.com/pytorch/pytorch/issues/14501, 18950, 19421")
     def test_proper_exit(self):
         (r'''There might be ConnectionResetError or leaked semaphore warning '''
          r'''(due to dirty process exit), but they are all safe to ignore''')
@@ -793,7 +791,9 @@ class TestDataLoader(TestCase):
             #   - `None` means that no error happens.
             # In all cases, all processes should end properly.
             if use_workers:
-                exit_methods = [None, 'loader_error', 'loader_kill', 'worker_kill', 'worker_error']
+                # FIXME: 'worker_kill' is flaky and thus temporarily disabled. 
+                #        Figure out the hang and add it back.
+                exit_methods = [None, 'loader_error', 'loader_kill', 'worker_error']
             else:
                 exit_methods = [None, 'loader_error', 'loader_kill']
 
