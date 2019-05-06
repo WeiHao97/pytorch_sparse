@@ -60,6 +60,7 @@ class ScriptModuleDeserializer final {
 
   void loadTensorTable(torch::ModelDef* model_def);
   void loadAttributeTable();
+  void loadStateTable();
   void importCallback(const std::string& qualifier);
 
   caffe2::serialize::PyTorchStreamReader reader_;
@@ -71,6 +72,9 @@ class ScriptModuleDeserializer final {
 
   std::vector<at::Tensor> tensor_table_;
   std::vector<IValue> attribute_table_;
+
+  // Results from __getstate__ to be passed to __setstate__ methods
+  std::vector<IValue> state_table_;
   std::unordered_set<std::string> imported_libs_;
 };
 
@@ -138,6 +142,7 @@ void ScriptModuleDeserializer::deserialize(
   loadTensorTable(&model_def);
   if (model_def.proto_version() >= 2) {
     loadAttributeTable();
+    loadStateTable();
   }
 
   // TODO: this can be simplified when C++/Python interop lands,
@@ -159,6 +164,19 @@ void ScriptModuleDeserializer::loadAttributeTable() {
       reader_.getRecord("attributes.pkl");
   Unpickler unpickler(attributes_ptr.get(), attributes_size, &tensor_table_);
   attribute_table_ = unpickler.parse_ivalue_list();
+}
+
+void ScriptModuleDeserializer::loadStateTable() {
+  at::DataPtr attributes_ptr;
+  size_t attributes_size;
+  std::tie(attributes_ptr, attributes_size) =
+      reader_.getRecord("states.pkl");
+  Unpickler unpickler(attributes_ptr.get(), attributes_size, &tensor_table_);
+  state_table_ = unpickler.parse_ivalue_list();
+  std::cout << "Loaded state table_ " << state_table_.size() << "\n";
+  for (auto i : state_table_) {
+    std::cout << "\t" << i << "\n";
+  }
 }
 
 at::Tensor ScriptModuleDeserializer::loadTensor(
@@ -280,6 +298,7 @@ void ScriptModuleDeserializer::convertModule(
         typeParser.parseType(attr_def.type()),
         attribute_table_.at(attr_def.id()));
   }
+
   if (module_def.has_torchscript_arena()) {
     at::DataPtr data;
     size_t size;
@@ -291,6 +310,10 @@ void ScriptModuleDeserializer::convertModule(
         [this](const std::string& qualifier) { importCallback(qualifier); };
     script::import_methods(module, data_str, tensor_table_, import_callback);
   }
+
+  size_t module_num = 0;
+  module->setstate(state_table_.at(module_num));
+
 }
 
 } // namespace

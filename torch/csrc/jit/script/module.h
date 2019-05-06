@@ -143,7 +143,7 @@ struct TORCH_API Module {
   ~Module() {
     // ClassType own the compilation unit of their Functions, but each
     // Function has a self argument which owns the ClassType, created a
-    // referernce cycle. By dropping all the methods of the module's class
+    // reference cycle. By dropping all the methods of the module's class
     // here we break the cycle.
     class_compilation_unit().drop_all_functions();
   }
@@ -328,6 +328,31 @@ struct TORCH_API Module {
 
     return nullptr;
   }
+
+  IValue getstate() const {
+    if (find_method("__getstate__") == nullptr) {
+      return IValue();
+    }
+    auto getstate = module_object()->type()->getMethod("__getstate__");
+    auto schema = getstate->getSchema();
+    // AT_CHECK(schema.arguments().size())
+
+    Stack stack;
+    stack.emplace_back(module_object());
+    getstate->run(stack);
+    return stack.at(0);
+  }
+
+  void setstate(IValue state) {
+    auto setstate = module_object()->type()->getMethod("__setstate__");
+    auto schema = setstate->getSchema();
+
+    Stack stack;
+    stack.emplace_back(module_object());
+    stack.emplace_back(std::move(state));
+    setstate->run(stack);
+  }
+
   void apply(std::function<void(Module&)> fn) {
     for (auto& submod : get_modules()) {
       submod->apply(fn);

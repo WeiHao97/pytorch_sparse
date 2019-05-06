@@ -514,6 +514,7 @@ class ScriptModuleSerializer final {
   void writeTensorTable(torch::ModelDef* model_def);
 
   void writeAttributeTable();
+  void writeStateTable();
   void writeLibs(torch::ModelDef* model_def);
 
   void convertModule(
@@ -536,6 +537,9 @@ class ScriptModuleSerializer final {
   std::vector<at::Tensor> tensor_table_;
 
   std::vector<IValue> attribute_table_;
+
+  // result of module __getstate__
+  std::vector<IValue> state_table_;
 
   // all classes used by this module hierarchy
   std::vector<ClassTypePtr> class_table_;
@@ -668,6 +672,7 @@ void ScriptModuleSerializer::convertModel(
 
   // This may write some attributes to the tensor_table_
   writeAttributeTable();
+  writeStateTable();
 
   writeTensorTable(model_def);
   writeLibs(model_def);
@@ -758,6 +763,17 @@ void ScriptModuleSerializer::writeAttributeTable() {
       "attributes.pkl", pickler.stack().data(), pickler.stack().size());
 }
 
+void ScriptModuleSerializer::writeStateTable() {
+  Pickler pickler(&tensor_table_);
+  pickler.start();
+  for (const IValue& ivalue : state_table_) {
+    pickler.addIValue(ivalue);
+  }
+  pickler.finish();
+  writer_.writeRecord(
+      "states.pkl", pickler.stack().data(), pickler.stack().size());
+}
+
 void ScriptModuleSerializer::convertModule(
     const script::Module& module,
     const std::string& prefix,
@@ -804,6 +820,8 @@ void ScriptModuleSerializer::convertModule(
         filename.str(), methods_str.c_str(), methods_str.size());
     record->set_key(filename.str());
   }
+
+  state_table_.emplace_back(module.getstate());
 
   for (const auto& elem : module.get_modules()) {
     torch::ModuleDef* sub_def = module_def->add_submodules();
