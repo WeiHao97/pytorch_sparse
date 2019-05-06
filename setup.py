@@ -163,6 +163,9 @@
 #   USE_TBB
 #      use TBB for parallelization
 #
+#   USE_EIGEN_THEADPOOL
+#      use Eigen thread pool as a native implementation of thread pool
+#
 
 from __future__ import print_function
 from setuptools import setup, Extension, distutils, find_packages
