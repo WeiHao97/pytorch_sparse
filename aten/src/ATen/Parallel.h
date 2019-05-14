@@ -113,4 +113,6 @@ CAFFE2_API void intraop_launch(std::function<void()> func);
 #include <ATen/ParallelOpenMP.h>
 #elif AT_PARALLEL_NATIVE
 #include <ATen/ParallelNative.h>
+#elif AT_PARALLEL_NATIVE_TBB
+#include <ATen/ParallelNativeTBB.h>
 #endif
