@@ -540,7 +540,6 @@ RegisterOperators reg(
              {}),
          // "aten::warn(str message, *, int stacklevel=2) -> ()"
          [](const Node* node) -> Operation {
-           std::cout << "Had context for " << *node << "\n";
            auto range = node->sourceRange();
            if (range.context()) {
              auto context = *range.context();
@@ -555,7 +554,7 @@ RegisterOperators reg(
              uint32_t line = context->start() + line_offset;
 
              auto file_name = context->file_ptr();
-             std::cout << "Context: " << *context->file_ptr() << ": " << line
+             std::cout << "Found context: " << *context->file_ptr() << ": " << line
                        << "\n";
 
              return [=](Stack& stack) {
@@ -571,7 +570,7 @@ RegisterOperators reg(
 
            std::cout << "No context for " << *node << "\n";
            return [=](Stack& stack) {
-             std::cout << "No context!!!\n";
+             std::cout << "Warning with no context!!!\n";
              // Pop stacklevel
              drop(stack, 1);
              c10::Warning::warn(

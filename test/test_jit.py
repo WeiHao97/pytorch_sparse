@@ -3114,13 +3114,17 @@ graph(%Ra, %Rb):
     def test_warnings(self):
         import warnings
 
-        def fn(x):
-            if bool(x < 2):
-                warnings.warn("x is less than 2")
-            return x
+        with self.disableEmitHook():
+            def fn(x):
+                if bool(x < 2):
+                    warnings.warn("x is less than 2")
+                return x
 
-        print("start")
-        scripted_fn = torch.jit.script(fn)
+            print("start")
+            scripted_fn = torch.jit.script(fn)
+            scripted_fn(torch.ones(1))
+            import sys
+            sys.exit(0)
         print(scripted_fn.graph)
         with warnings.catch_warnings(record=True) as warns:
             fn(torch.ones(1))
