@@ -26,7 +26,9 @@ struct SourceRangeFactory {
     } while ((pos = source_->find('\n', pos)) != std::string::npos);
 
     context_ = std::make_shared<SourceRange>(
-        std::make_shared<std::string>(std::move(source_file)), def_start_line, 0);
+        /*file=*/std::make_shared<std::string>(std::move(source_file)),
+        /*start=*/def_start_line,
+        /*end=*/0);
   }
   SourceRange create(int line, int start_col, int end_col) {
     // Python has a weird convention where col_offset points to the column
@@ -36,7 +38,11 @@ struct SourceRangeFactory {
     // Also, lines are counted from 1.
     line--;
     auto line_start = line_len_prefix_sum_.at(line);
-    return SourceRange(source_, line_start + start_col, line_start + end_col, context_);
+    return SourceRange(
+        /*file=*/source_,
+        /*start=*/line_start + start_col,
+        /*end=*/line_start + end_col,
+        /*contex=*/context_);
   }
 
   std::shared_ptr<std::string> source_;

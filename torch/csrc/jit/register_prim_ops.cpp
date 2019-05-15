@@ -534,29 +534,48 @@ RegisterOperators reg(
      Operator(
          FunctionSchema(
              "aten::warn",
+             "",
              {Argument("message", StringType::get()),
               Argument("stacklevel", IntType::get(), c10::nullopt, 2, true)},
              {}),
+         // "aten::warn(str message, *, int stacklevel=2) -> ()"
          [](const Node* node) -> Operation {
-           auto range =
-               std::dynamic_pointer_cast<SourceRange>(node->getSourceLocation());
-           const char* file_name = nullptr;
-           uint32_t line = 0;
-           if (range) {
-             auto context = range->context();
-             if (context) {
-               // If Python line info and source file are present, warn with them
-               // instead (otherwise the Python warning will use the top Python
-               // frame in the stack)
-               auto text = range->file();
-               size_t line_offset = std::count(text.begin(), text.begin() + range->start(), '\n');
-               line = static_cast<uint32_t>((*context)->start()) + line_offset;
-               file_name = (*context)->file_ptr()->c_str();
-             }
+           std::cout << "Had context for " << *node << "\n";
+           auto range = node->sourceRange();
+           if (range.context()) {
+             auto context = *range.context();
+             // If Python line info and source file are present, warn with them
+             // instead (otherwise the Python warning will use the top Python
+             // frame in the stack)
+
+             // Find line number (function start + number of newlines)
+             auto text = range.file();
+             size_t line_offset =
+                 std::count(text.begin(), text.begin() + range.start(), '\n');
+             uint32_t line = context->start() + line_offset;
+
+             auto file_name = context->file_ptr();
+             std::cout << "Context: " << *context->file_ptr() << ": " << line
+                       << "\n";
+
+             return [=](Stack& stack) {
+               // Pop stacklevel
+               drop(stack, 1);
+               std::cout << "PASSING LOC: " << (file_name->c_str()) << "\n";
+               c10::Warning::warn(
+                   {nullptr, file_name->c_str(), line},
+                   pop(stack).toStringRef());
+               return 0;
+             };
            }
+
+           std::cout << "No context for " << *node << "\n";
            return [=](Stack& stack) {
+             std::cout << "No context!!!\n";
+             // Pop stacklevel
              drop(stack, 1);
-             c10::Warning::warn({"", file_name, line}, pop(stack).toStringRef());
+             c10::Warning::warn(
+                 {nullptr, nullptr, 0}, pop(stack).toStringRef());
              return 0;
            };
          }),

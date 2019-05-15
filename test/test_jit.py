@@ -3119,15 +3119,20 @@ graph(%Ra, %Rb):
                 warnings.warn("x is less than 2")
             return x
 
-<<<<<<< HEAD
+        print("start")
         scripted_fn = torch.jit.script(fn)
-
+        print(scripted_fn.graph)
         with warnings.catch_warnings(record=True) as warns:
             fn(torch.ones(1))
 
+        print("Running catch")
+        print(scripted_fn.graph_for(torch.ones(1)))
+        print("XXXXXXXXXXg")
         with warnings.catch_warnings(record=True) as script_warns:
             scripted_fn(torch.ones(1))
+        print("Ran catching")
 
+        scripted_fn(torch.ones(1))
         self.assertEqual(str(warns[0]), str(script_warns[0]))
 
     def test_warning_with_no_file(self):
@@ -3145,9 +3150,7 @@ graph(%Ra, %Rb):
 
         self.assertTrue(len(script_warns) == 1)
         self.assertTrue('nn/modules/module.py' in script_warns[0].filename)
-=======
         FileCheck().check("aten::warn").run(str(fn.graph))
->>>>>>> 6e82b1c77d36386ba738af3287693105b4bbafe2
 
     def test_no_erroneous_warnings(self):
         import warnings

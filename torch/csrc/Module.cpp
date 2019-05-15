@@ -539,9 +539,11 @@ static void warning_handler(
     const char* msg) {
   AutoGIL gil;
   auto result = -1;
+  std::cout << "Warning, the file " << std::boolalpha << (source_location.file == nullptr) << "\n";
   if (source_location.file == nullptr) {
     result = PyErr_WarnEx(PyExc_RuntimeWarning, msg, 1);
   } else {
+    std::cout << "User warning at " << source_location.file << " " << source_location.line << "\n";
     result = PyErr_WarnExplicit(
             /*category=*/PyExc_UserWarning,
             /*message=*/msg,

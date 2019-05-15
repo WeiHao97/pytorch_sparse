@@ -1,5 +1,6 @@
 #pragma once
 #include <c10/util/Exception.h>
+#include <c10/util/Optional.h>
 
 #include <algorithm>
 #include <memory>
@@ -11,8 +12,12 @@ namespace jit {
 // that
 // range.
 struct CAFFE2_API SourceRange {
-  SourceRange(std::shared_ptr<std::string> file_, size_t start_, size_t end_)
-      : file_(std::move(file_)), start_(start_), end_(end_) {}
+  SourceRange(
+      std::shared_ptr<std::string> file,
+      size_t start,
+      size_t end,
+      c10::optional<std::shared_ptr<SourceRange>> context = c10::nullopt)
+      : file_(std::move(file)), start_(start), end_(end), context_(context) {}
   explicit SourceRange(std::string string_range)
       : file_(std::make_shared<std::string>(std::move(string_range))),
         start_(0),
@@ -43,6 +48,9 @@ struct CAFFE2_API SourceRange {
     highlight(ss);
     return ss.str();
   }
+  const c10::optional<std::shared_ptr<SourceRange>> context() const {
+    return context_;
+  }
   std::string wrapException(
       const std::exception& e,
       const std::string& additional = "") {
@@ -64,6 +72,7 @@ struct CAFFE2_API SourceRange {
   std::shared_ptr<std::string> file_;
   size_t start_;
   size_t end_;
+  c10::optional<std::shared_ptr<SourceRange>> context_;
 };
 
 inline std::ostream& operator<<(std::ostream& out, const SourceRange& range) {

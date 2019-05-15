@@ -157,7 +157,7 @@ def get_jit_def(fn, self_name=None):
         raise RuntimeError("expected a single top-level function")
     type_line = torch.jit.annotations.get_type_line(source)
 
-    ctx = SourceContext(source, _uses_true_division(fn), source_file, fn_def_line)
+    ctx = SourceContext(source, _uses_true_division(fn), filename, fn_def_line)
     return build_def(ctx, py_ast.body[0], type_line, self_name)
 
 
@@ -165,10 +165,8 @@ def get_jit_def(fn, self_name=None):
 # about the function-to-be-compiled.
 class SourceContext(SourceRangeFactory):
     def __init__(self, source, uses_true_division=True, filename=None, fn_def_line=None):
-        super(SourceContext, self).__init__(source, source_info)
+        super(SourceContext, self).__init__(source, filename, fn_def_line)
         self.uses_true_division = uses_true_division
-        self.filename = source_file
-        self.line_num = fn_def_line
 
 
 class Builder(object):
