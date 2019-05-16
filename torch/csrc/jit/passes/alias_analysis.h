@@ -78,17 +78,6 @@ class AliasDb {
     if (a.empty() || b.empty()) {
       return false;
     }
-    // Short-circuit for special case: if any value is a wildcard, the two sets
-    // may alias
-    if (std::any_of(
-            a.cbegin(),
-            a.cend(),
-            [this](const Value* v) { return isWildcard(v); }) ||
-        std::any_of(b.cbegin(), b.cend(), [this](const Value* v) {
-          return isWildcard(v);
-        })) {
-      return true;
-    }
 
     T<Element*> aElements;
     for (const Value* v : a) {
@@ -166,18 +155,8 @@ class AliasDb {
   /**
    * Wildcard methods
    */
-  // is `v` a wildcard?
-  TORCH_API bool isWildcard(const Value* v) const;
   // Register `v` as a wildcard value.
   void setWildcard(const Value* v);
-  // Get all nodes that write to a wildcard value.
-  const std::unordered_set<Node*>& getWildcardWriters() const {
-    return wildcardWriters_;
-  }
-  // Does `n` use or write to any wildcard aliases?
-  bool hasWildcard(const Node* n) const;
-  // Returns nullopt if there are no wildcard nodes
-  c10::optional<const Node*> getLastWildcard() const;
 
   // Is the element a wildcard or an unhandled container type,
   // or does the element contain an element for which that's true
@@ -241,17 +220,16 @@ class AliasDb {
   std::unique_ptr<MemoryDAG> memoryDAG_;
   // Mapping of values to MemoryDAG elements
   std::unordered_map<const Value*, Element*> elementMap_;
+  // List of all wildcard elements (one for each unique mutable type).
+  std::vector<Element*> wildcardIndex_;
+  Element* getWildcardElementForType(const TypePtr& type) const;
 
-  // All values that may point to a wildcard value.
-  ValueSet wildcards_;
-  // All nodes that write to a wildcard
-  std::unordered_set<Node*> wildcardWriters_;
-  // All nodes that contain a wildcard
-  std::unordered_set<const Node*> wildcardNodes_;
-
-  // State for tracking write info
-  size_t numWrites_ = 0;
+  /**
+   * State for tracking write info.
+   */
+  // Map of nodes to the values that they write to
   std::unordered_map<Node*, ValueSet> writeIndex_;
+  // Set of all memory locations that may have been written to.
   mutable std::unordered_set<const Element*> writeCache_;
   mutable bool isWriteCacheStale_ = true;
   void rebuildWriteCache() const;
