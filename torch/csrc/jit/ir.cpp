@@ -4,6 +4,7 @@
 #include <torch/csrc/jit/constants.h>
 #include <torch/csrc/jit/operator.h>
 #include <torch/csrc/jit/passes/python_print.h>
+#include <torch/csrc/jit/script/module.h>
 #include <torch/csrc/jit/script/schema_matching.h>
 
 #include <algorithm>
@@ -245,6 +246,15 @@ std::ostream& Node::print(
 
   out << "(" << inputs() << ")";
   std::string scName = scopeName();
+  CallStackPtr cs = callstack();
+  if (cs) {
+    out << ", ";
+    out << "callstack:";
+    while (!cs->isRoot()) {
+      out << " " << cs->fn()->name();
+      cs = cs->parent();
+    }
+  }
   if (scName.empty()) {
     out << "\n";
   } else {
@@ -938,6 +948,7 @@ Node::Node(Graph* graph_, NodeKind kind_)
       graph_(graph_),
       owning_block_(nullptr),
       scope_(graph_->current_scope_),
+      callstack_(graph_->current_callstack_),
       schema_(nullptr),
       topo_position_(0) {
   graph_->all_nodes.emplace(this);
@@ -987,6 +998,10 @@ void Node::cloneFrom(Node* s) {
   s->source_range_ = s->source_range_;
   if (s->scope_ && !s->scope_->isBlank()) {
     scope_ = s->scope_;
+  }
+
+  for (auto f : s->callstack_->asVector()) {
+    callstack_ = callstack_->insertSubscope(f);
   }
   copyAttributes(*s);
 }
