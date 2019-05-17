@@ -2705,7 +2705,6 @@
     - floating_point
   backends:
     - CPU
-    - CUDA
   return: self
   arguments:
     - THTensor* self
@@ -2723,7 +2722,6 @@
     - floating_point
   backends:
     - CPU
-    - CUDA
   cname: exponential
   variants: function
   return: self
@@ -2739,7 +2737,6 @@
   name: _th_geometric_
   backends:
     - CPU
-    - CUDA
   cname: geometric
   variants: function
   return: self
