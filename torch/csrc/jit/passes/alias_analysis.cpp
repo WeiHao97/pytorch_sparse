@@ -126,13 +126,14 @@ void AliasDb::getReadsImpl(Node* n, MemoryLocations& ret) const {
   for (const auto input : n->inputs()) {
     auto it = elementMap_.find(input);
     if (it != elementMap_.end()) {
-      ret |= it->second->getMemoryLocations();
-    }
-  }
-  for (const auto output : n->outputs()) {
-    auto it = elementMap_.find(output);
-    if (it != elementMap_.end()) {
-      ret |= it->second->getMemoryLocations();
+      auto el = it->second;
+      // Add all memory locations this element may alias.
+      ret |= el->getMemoryLocations();
+
+      // We also consider memory locations of contained values to be "read".
+      for (auto contained : el->containedElements) {
+        ret |= memoryDAG_->fromIndex(contained)->getMemoryLocations();
+      }
     }
   }
 
@@ -194,9 +195,35 @@ void AliasDb::dump() const {
   std::cout << "\n";
 }
 
+void AliasDb::assignWildcardToContained(const Value* v) {
+  if (!shouldAnnotate(v)) {
+    return;
+  }
+  auto it = elementMap_.find(v);
+  TORCH_INTERNAL_ASSERT(it != elementMap_.end());
+  assignWildcardToContained(it->second, v->type());
+}
+
+void AliasDb::assignWildcardToContained(Element* e, const TypePtr& type) {
+  TORCH_INTERNAL_ASSERT(shouldAnnotate(type));
+  // Assign wildcards to contained types
+  for (const auto& containedType : type->containedTypes()) {
+    if (shouldAnnotate(containedType)) {
+      auto containedElement = memoryDAG_->makeFreshValue(nullptr);
+      auto wildcard = getOrCreateWildcard(containedType);
+      memoryDAG_->makePointerTo(containedElement, wildcard);
+      memoryDAG_->addToContainedElements(containedElement, e);
+
+      // Handle nested containers
+      assignWildcardToContained(containedElement, containedType);
+    }
+  }
+}
+
 void AliasDb::analyze(const std::shared_ptr<Graph>& graph) {
   for (auto input : graph->inputs()) {
     setWildcard(input);
+    assignWildcardToContained(input);
   }
   analyze(graph->block());
 }
@@ -599,9 +626,13 @@ void AliasDb::analyzeContainerConstruct(Node* node) {
   for (auto input : node->inputs()) {
     setWildcard(input);
   }
-  for (auto output : node->outputs()) {
-    giveFreshAlias(output);
-  }
+
+  TORCH_INTERNAL_ASSERT(node->outputs().size() == 1);
+  auto container = node->output();
+  giveFreshAlias(container);
+
+  // Register contained types
+  assignWildcardToContained(container);
 }
 
 // BroadcastingChunk: all inputs are broadcasted, and then individually chunked.
