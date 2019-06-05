@@ -43,12 +43,23 @@ builtin_cast_methods() {
   return builtin_cast_methods;
 }
 
+// The current supported iterable/builtin function
+static const std::unordered_set<c10::Symbol> iterable_funcs = {
+  prim::range,
+};
+
 std::shared_ptr<SugaredValue> BuiltinFunction::call(
     const SourceRange& loc,
     Function& m,
     at::ArrayRef<NamedValue> inputs,
     at::ArrayRef<NamedValue> attributes,
     size_t n_binders) {
+  // For builtin functions like range(), zip(), enumerate(), etc. We will emit
+  // an IterableValue instead of inserting an op into the graph, this allow us
+  // to handle the iterable efficiently in the compiler to fill in the loop info
+  if (iterable_funcs.count(symbol)) {
+    return std::make_shared<IterableValue>(symbol, toValues(*m.graph(), inputs));
+  }
   return std::make_shared<SimpleValue>(
       emitBuiltinCall(loc, *m.graph(), symbol, self, inputs, attributes, true));
 }
@@ -235,6 +246,135 @@ std::shared_ptr<SugaredValue> SimpleValue::call(
   }
   return SugaredValue::call(loc, m, inputs, attributes, n_binders);
 }
+
+std::vector<Value*> SimpleValue::fillInLoopInfo(
+  const SourceRange& loc,
+  Function& m,
+  Node* n) {
+  TORCH_INTERNAL_ASSERT(n->kind() == prim::Loop);
+  // List, Tuple, Tensor, fill in missing information desugaring
+  Value* val = getValue();
+  TypePtr val_type = val->type();
+  Graph& g = *m.graph();
+
+  // start insertion point right before Loop node
+  WithInsertPoint guard(n);
+  if (auto list_type = val_type->cast<ListType>()) {
+    // fill in max_trip_count_val
+    Value* max_trip_count_val = g.insert(aten::len, {val}, {}, loc);
+    n->insertInput(0, max_trip_count_val);
+
+    // fill in the target element assignment value in the beginning of the FOR loop
+    {
+      Block* body_block = n->blocks()[0];
+      auto it = body_block->nodes().begin();
+      WithInsertPoint it_guard(*it);
+      Value* trip_count = body_block->inputs()[0]; // Iteration num
+      Value* cur_elem = g.insert(aten::select, {val, trip_count}, {}, loc);
+      return {cur_elem};
+    }
+  } else if (val_type->isSubtypeOf(TensorType::get())) {
+    Value* outermost_dim_index = g.insertConstant(0, IntType::get(), loc);
+    // zero-dim tensor error handling
+    Value* num_dim = g.insert(aten::dim, {val}, {}, loc);
+    Value* cond_value = g.insert(aten::eq, {num_dim, outermost_dim_index}, {}, loc);
+    Node* if_node = g.insertNode(g.create(prim::If, 0)->setSourceRange(loc));
+    if_node->addInput(cond_value);
+
+    Block* true_block = if_node->addBlock();
+    if_node->addBlock();
+    {
+      WithInsertPoint guard(true_block);
+      g.insert(prim::RaiseException,
+          {std::string("iteration over a 0-d tensor!")}, {}, loc);
+    }
+
+    // fill in max_trip_count_val
+    Value* sizes_tuple = g.insert(aten::size, {val}, {}, loc);
+    Value* max_trip_count_val = g.insert(aten::select, {sizes_tuple, outermost_dim_index}, {}, loc);
+    n->insertInput(0, max_trip_count_val);
+
+    // fill in the target element assignment value in the beginning of the FOR loop
+    Value* cur_elem = nullptr;
+    {
+      Block* body_block = n->blocks()[0];
+      auto it = body_block->nodes().begin();
+      Value* trip_count = body_block->inputs()[0]; // Iteration num
+
+      WithInsertPoint it_guard(*it);
+      cur_elem = g.insert(aten::select, {val, outermost_dim_index, trip_count}, {}, loc);
+    }
+    return {cur_elem};
+
+  } else {
+      throw ErrorReport(loc)
+          << "Value type " << val_type->str() << " does not have loop information to fill";
+  }
+}
+
+std::vector<Value*> IterableValue::fillInLoopInfo(
+  const SourceRange& loc,
+  Function& m,
+  Node* n) {
+  TORCH_INTERNAL_ASSERT(n->kind() == prim::Loop);
+  // List, Tuple, Tensor, fill in missing information desugaring
+  Graph& g = *m.graph();
+  if (symbol_ == prim::range) {
+    // fill in max_trip_count_val
+    WithInsertPoint guard(n);
+    Value* end_val = nullptr, *start_val = nullptr, *step_val = nullptr;
+    Value* max_trip_count_val = nullptr;
+    size_t iter_inputs_size = iter_inputs_.size();
+    if (iter_inputs_size == 0) {
+      throw ErrorReport(loc) << "range expected at least 1 arguments, got 0";
+    } else if (iter_inputs_.size() == 1) {
+      end_val = iter_inputs_[0];
+      start_val = g.insertConstant(0, nullptr, loc);
+      step_val = g.insertConstant(1, nullptr, loc);
+      max_trip_count_val = end_val;
+    } else if (iter_inputs_.size() <= 3) {
+      start_val = iter_inputs_[0];
+      end_val = iter_inputs_[1];
+      if (iter_inputs_.size() == 3) {
+        step_val = iter_inputs_[2];
+        // error handling when step_val = 0 during runtime
+        Value* cond_val = g.insert(aten::eq, {step_val, g.insertConstant(0, nullptr, loc)}, {}, loc);
+        Node* if_node = g.insertNode(g.create(prim::If, 0)->setSourceRange(loc));
+        if_node->addInput(cond_val);
+        auto true_block = if_node->addBlock();
+        if_node->addBlock();
+        WithInsertPoint guard(true_block);
+        g.insert(prim::RaiseException,
+            {std::string("range() arg 3 must not be zero")}, {}, loc);
+      } else {
+        step_val = g.insertConstant(1, nullptr, loc);
+      }
+      max_trip_count_val = g.insert(aten::__range_length, {start_val, end_val, step_val}, {}, loc);
+    } else {
+      throw ErrorReport(loc)
+          << "range expected at most 3 arguments, got " << iter_inputs_size;
+    }
+    n->insertInput(0, max_trip_count_val);
+
+    // fill in the target element assignment value in the beginning of the FOR loop
+    {
+      Block* body_block = n->blocks()[0];
+      auto it = body_block->nodes().begin();
+      Value* trip_count = body_block->inputs()[0]; // Iteration num
+
+      WithInsertPoint it_guard(*it);
+      Value* cur_elem = trip_count;
+      if (iter_inputs_size != 1) {
+        cur_elem = g.insert(aten::__derive_index, {trip_count, start_val, step_val}, {}, loc);
+      }
+      return {cur_elem};
+    }
+  } else {
+      throw ErrorReport(loc)
+          << "Iterable " << symbol_.toDisplayString() << " does not have loop information to fill";
+  }
+}
+
 
 std::shared_ptr<SugaredValue> ClassValue::call(
     const SourceRange& loc,

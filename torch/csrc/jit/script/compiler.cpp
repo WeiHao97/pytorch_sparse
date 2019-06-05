@@ -372,6 +372,7 @@ struct Environment {
                "__len__",
                std::make_shared<BuiltinFunction>(aten::len, at::nullopt))},
           {"hash", std::make_shared<BuiltinFunction>(aten::hash, at::nullopt)},
+          {"range", std::make_shared<BuiltinFunction>(prim::range, at::nullopt)},
           {"min", std::make_shared<BuiltinFunction>(prim::min, at::nullopt)},
           {"max", std::make_shared<BuiltinFunction>(prim::max, at::nullopt)},
           {"abs", std::make_shared<BuiltinFunction>(prim::abs, at::nullopt)},
@@ -1238,7 +1239,7 @@ struct to_ir {
 
   // *********************** Loop Operators ************************************
   // Emits a loop operators conforming to the semantics specified at
-  // https://github.com/onnx/onnx/blob/master/docs/Operators.md#experimental-loop
+  // https://github.com/onnx/onnx/blob/master/docs/Operators.md#Loop
   // TODO: implement scan_outputs
 
   // the format of the Loop instruction is:
@@ -1252,45 +1253,48 @@ struct to_ir {
   // loop-carried variables whose definitions are updated as the loop executes
   // in a way that ensure single static assignment.
 
-  void emitLoopCommon(
+  Node* emitLoopCommon(
       SourceRange range,
       const List<Stmt>& body,
-      const std::function<void(Value*, std::shared_ptr<Environment>)>&
-          current_element_assigner,
-      c10::optional<Expr> cond,
-      Value* max_trip_count_val = nullptr) {
-    if (!max_trip_count_val) {
-      max_trip_count_val = materializeConstant(
-          std::numeric_limits<int64_t>::max(),
-          *graph,
-          range,
-          integral_constants);
-    }
-
-    Value* cond_val = (cond) ? emitCond(cond.value())
-                             : graph->insertConstant(true, nullptr, range);
-
+      std::vector<std::string> iter_names,
+      SugaredValuePtr iterable,
+      c10::optional<Expr> cond) {
     Node* n = graph->insertNode(create(prim::Loop, range, 0));
     WithInsertPoint guard(n);
-
-    n->addInput(max_trip_count_val);
+    // emit the start_condition and add it as input (we only emit condition on
+    // WHILE loop, and for the FOR loop, the condition on TorchScript class will
+    // substitute this constant node with the condition graph on its SugaredValue)
+    Value* cond_val = (cond) ? emitCond(cond.value())
+                      : graph->insertConstant(true, nullptr, range);
     n->addInput(cond_val);
+    
     auto* body_block = n->addBlock();
-    Value* trip_count =
-        body_block->addInput()->setType(IntType::get()); // Iteration num
+    body_block->addInput()->setType(IntType::get()); // Iteration num
 
     {
       pushFrame(body_block);
       WithInsertPoint guard(body_block);
 
-      // current_element_assigner uses an induction variable
-      // to set a current element
-      if (current_element_assigner) {
-        current_element_assigner(trip_count, environment_stack);
+      // max_trip_count, current element assignement is being added to the Loop node
+      // in sugared value, it relies on different use cases (iterables) to emit the
+      // computation and add those values to the prim::Loop node 
+      if (iterable != nullptr) {
+        // fill in the loop information and get the values of the elemnt assignments
+        std::vector<Value*> iter_vals = iterable->fillInLoopInfo(range, method, n);
+        // assign element in the environment stack
+        if (iter_names.size() != iter_vals.size()) {
+          throw ErrorReport(range) << "expect " << iter_vals.size() 
+              << " for each iterable but get " << iter_names.size() << " loop veriables";
+        }
+        for (size_t i = 0; i < iter_names.size(); ++ i){
+          environment_stack->setVar(range, iter_names[i], iter_vals[i]);
+        }
       }
-
+      // emit the body statements
       emitStatements(body);
 
+      // Also emit the continue conditional for WHILE loop or insert constant true
+      // node for FOR loop
       Value* block_condition = (cond)
           ? emitCond(cond.value())
           : graph->insertConstant(true, nullptr, range);
@@ -1299,198 +1303,10 @@ struct to_ir {
 
       popFrame();
     }
-  }
-
-  void emitForRange(
-      const SourceRange& range,
-      const Ident& target,
-      const List<Expr>& args,
-      const List<Stmt>& body) {
-    Value *end_val = nullptr, *start_val = nullptr, *step_val = nullptr;
-    bool isSimpleRange = (args.size() == 1);
-    std::vector<Value*> argVals;
-    for (auto i : args) {
-      argVals.push_back(ensureInt(range, emitExpr(i)));
-    }
-    if (isSimpleRange) {
-      end_val = argVals[0];
-      start_val = end_val->owningGraph()->insertConstant(0);
-      step_val = end_val->owningGraph()->insertConstant(1);
-      start_val->node()->setSourceRange(range);
-      end_val->node()->setSourceRange(range);
-    } else if (args.size() == 2 || args.size() == 3) {
-      start_val = argVals[0];
-      end_val = argVals[1];
-      if (args.size() == 3) {
-        step_val = argVals[2];
-      } else {
-        step_val = end_val->owningGraph()->insertConstant(1);
-        step_val->node()->setSourceRange(range);
-      }
-    } else if (args.size() == 0) {
-      throw ErrorReport(range) << "range expected 1 arguments, got 0";
-    } else {
-      throw ErrorReport(range)
-          << "range expected at most 3 arguments, got " << args.size();
-    }
-    const auto& ident_name = target.name();
-    TORCH_CHECK(
-        end_val != nullptr && start_val != nullptr && step_val != nullptr,
-        "Expected non-null pointers for range() arguments");
-    auto addOp = [end_val, range](
-                     Graph* g, NodeKind kind, ArrayRef<Value*> inputs) {
-      return g->insertNode(g->create(kind, inputs, 1))
-          ->setSourceRange(range)
-          ->output()
-          ->setType(IntType::get());
-    };
-    auto assigner =
-        [addOp, ident_name, range, start_val, step_val, isSimpleRange](
-            Value* index, std::shared_ptr<Environment> env) {
-          Value* derived_index;
-          if (isSimpleRange) {
-            derived_index = index;
-          } else {
-            auto g = index->owningGraph();
-            derived_index =
-                addOp(g, aten::__derive_index, {index, start_val, step_val});
-          }
-          env->setVar(range, ident_name, derived_index);
-        };
-    Value* max_trip_count_val;
-    if (isSimpleRange) {
-      max_trip_count_val = end_val;
-    } else {
-      auto g = start_val->owningGraph();
-      Value* cond_value = emitBuiltinCall(
-          range,
-          *g,
-          aten::eq,
-          c10::nullopt,
-          {step_val, g->insertConstant(0)},
-          {},
-          /*required=*/true);
-      Node* n = g->insertNode(create(prim::If, range, 0));
-      n->addInput(cond_value);
-      auto true_block = n->addBlock();
-      n->addBlock();
-      {
-        WithInsertPoint guard(true_block);
-        g->insert(
-            prim::RaiseException,
-            {std::string("range() arg 3 must not be zero")},
-            {},
-            range);
-      }
-      max_trip_count_val =
-          addOp(g, aten::__range_length, {start_val, end_val, step_val});
-    }
-    emitLoopCommon(range, body, assigner, {}, max_trip_count_val);
-  }
-
-  void emitForInListLoop(
-      const For& stmt,
-      const std::shared_ptr<torch::jit::script::SimpleValue>& siv) {
-    auto targets = stmt.targets();
-    auto itrs = stmt.itrs();
-    auto body = stmt.body();
-    auto& range = stmt.range();
-    auto target = Var(targets[0]).name();
-
-    auto listArg = siv->asValue(range, method);
-    auto max_trip_count_val = emitBuiltinCall(
-        range,
-        *graph,
-        aten::len,
-        c10::nullopt,
-        {listArg},
-        {},
-        /*required=*/true);
-    const auto& ident_name = target.name();
-    auto assigner = [ident_name, range, listArg, this](
-                        Value* index, std::shared_ptr<Environment> env) {
-      auto cur_elm = emitBuiltinCall(
-          range,
-          *this->graph,
-          aten::select,
-          c10::nullopt,
-          {listArg, index},
-          {},
-          /*required=*/true);
-      env->setVar(range, ident_name, cur_elm);
-    };
-    emitLoopCommon(range, body, assigner, {}, max_trip_count_val);
-  }
-
-  void emitForInTensorLoop(const For& stmt, Value* tensorArg) {
-    auto targets = stmt.targets();
-    auto target = Var(targets[0]).name();
-    auto itrs = stmt.itrs();
-    auto body = stmt.body();
-    auto& range = stmt.range();
-
-    auto outermost_dim_index = graph->insertConstant(0, IntType::get(), range);
-    auto num_dim = graph->insert(aten::dim, {tensorArg});
-    Value* cond_value = emitBuiltinCall(
-        range,
-        *method.graph(),
-        aten::eq,
-        c10::nullopt,
-        {num_dim, outermost_dim_index},
-        {},
-        /*required=*/true);
-
-    Node* n = graph->insertNode(create(prim::If, range, 0));
-    n->addInput(cond_value);
-    auto true_block = n->addBlock();
-    n->addBlock();
-    {
-      WithInsertPoint guard(true_block);
-      graph->insert(
-          prim::RaiseException,
-          {std::string("iteration over a 0-d tensor")},
-          {},
-          range);
-    }
-
-    auto sizes_tuple = emitBuiltinCall(
-        range,
-        *graph,
-        aten::size,
-        c10::nullopt,
-        {tensorArg},
-        {},
-        /*required=*/true);
-
-    auto max_trip_count_val = emitBuiltinCall(
-        range,
-        *graph,
-        aten::select,
-        c10::nullopt,
-        {sizes_tuple, outermost_dim_index},
-        {},
-        /*required=*/true);
-
-    const auto& ident_name = target.name();
-    auto assigner = [outermost_dim_index, ident_name, range, tensorArg, this](
-                        Value* index, std::shared_ptr<Environment> env) {
-      auto cur_elm = emitBuiltinCall(
-          range,
-          *this->graph,
-          aten::select,
-          c10::nullopt,
-          {tensorArg, outermost_dim_index, index},
-          {},
-          /*required=*/true);
-      env->setVar(range, ident_name, cur_elm);
-    };
-
-    emitLoopCommon(range, body, assigner, {}, max_trip_count_val);
+    return n;
   }
 
   void emitFor(const For& stmt) {
-    // For now, we only support range loops. e.g. for i in range(3): ...
-
     auto targets = stmt.targets();
     auto itrs = stmt.itrs();
     auto body = stmt.body();
@@ -1509,38 +1325,33 @@ struct to_ir {
     }
     auto target = Var(targets[0]).name();
 
-    // match range(<expr>) style loops
-    // itrs must consist of a single Apply node
-    if (itrs[0].kind() == TK_APPLY) {
-      Apply range_iterator = Apply(itrs[0]);
-      if (range_iterator.callee().kind() == TK_VAR) {
-        Var var = Var(range_iterator.callee());
-        if (var.name().name() == "range") {
-          return emitForRange(
-              stmt.range(), target, range_iterator.inputs(), body);
-        }
-      }
-    }
-
-    // it isn't a range(<expr>) loop, treat it as a sugared value that maybe can
-    // be unrolled
+    // Emit loop information for builtinFunction values like range(), zip(), 
+    // enumerate() or SimpleValue like List, Tensor, Dict, etc.
     auto sv = emitSugaredExpr(itrs[0], 1);
 
+    // We will get IterableValue for builtinFunctions and SimpleValue for types
+    // like List, Tensor, Dict. 
     auto siv = std::dynamic_pointer_cast<SimpleValue>(sv);
+    auto iterable_val = std::dynamic_pointer_cast<IterableValue>(sv);
+    std::vector<std::string> iter_names;
 
-    // for-in lists
-    if (siv && siv->getValue()->type()->kind() == TypeKind::ListType) {
-      emitForInListLoop(stmt, siv);
+    if ((siv && (siv->getValue()->type()->kind() == TypeKind::ListType
+        || siv->getValue()->type()->isSubtypeOf(TensorType::get()))
+        ) || iterable_val) {
+      // collect all iterable names to fill in the value table
+      for(size_t i = 0; i < targets.size(); ++ i) {
+        std::string iter_name = Var(targets[i]).name().name();
+        iter_names.emplace_back(iter_name);
+      }
+      emitLoopCommon(stmt.range(), body, iter_names, sv, {});
       return;
     }
 
-    // for-in tensors
-    if (siv && siv->getValue()->type()->isSubclass(TypeKind::TensorType)) {
-      auto value = siv->asValue(stmt.range(), method);
-      emitForInTensorLoop(stmt, value);
-      return;
-    }
-
+    // Emit or unroll the loop for Tuple or ModuleList, we choose to unroll or emit
+    // each subelemnt for each iteration separately. This is because for ModuleList,
+    // each module inside the list may be different types, so FOR .. in ModuleList
+    // essentially should emit different stmts for each iteration, which we shouldn't
+    // emit the prim::Loop node for it, the same rule applies for the Tuple case. 
     auto instances = sv->asTuple(stmt.range(), method);
     const std::string& target_name = target.name();
     pushFrame(environment_stack->block());
@@ -1560,7 +1371,15 @@ struct to_ir {
 
   void emitWhile(const While& stmt) {
     auto cond = stmt.cond();
-    emitLoopCommon(stmt.range(), stmt.body(), nullptr, cond, nullptr);
+    Node* loop_node = emitLoopCommon(stmt.range(), stmt.body(), {}, {}, cond);
+    // fill in max_trip_count_val for the prim::Loop node for compete information
+    Value* max_trip_count_val = materializeConstant(
+      std::numeric_limits<int64_t>::max(),
+      *graph,
+      stmt.range(),
+      integral_constants);
+
+    loop_node->insertInput(0, max_trip_count_val);
   }
 
   // Currently we do not support assigning exceptions to variables,

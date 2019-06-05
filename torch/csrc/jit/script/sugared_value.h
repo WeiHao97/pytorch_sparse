@@ -94,6 +94,24 @@ struct TORCH_API SugaredValue
     throw ErrorReport(loc) << "cannot call a " << kind();
   }
 
+  // Fill in loop information, specifically:
+  // * max_trip_count_val: calculate the max trip count and fill it in the graph
+  // * iterator element assignment: iterator assignment inside the beginning of the FOR loop,
+  //   fillInLoopInfo will need to return those iterator elemnt value to the compiler to
+  //   set the environment stack for the following uses 
+  // * condition variable: the condition that will terminate the FOR loop. WHILE loop does not
+  //   need to fill this in because it will be emitted by the compiler. TorchScript classes
+  //   iterator will need to fill the condition variable in, and it requires the classes to
+  //   define a protocol __next__ and __hasnext__, the __hasnext__ magic method graph will
+  //   substitute the condition value with the corresponding subgraph
+  // * return: a list of Value for current element assignment
+  virtual std::vector<Value*> fillInLoopInfo(
+    const SourceRange& loc,
+    Function& m,
+    Node* n) {
+    throw ErrorReport(loc) << kind() << " does not have loop information to fill in";
+  }
+
   virtual ~SugaredValue() = default;
 };
 
@@ -141,6 +159,11 @@ struct TORCH_API SimpleValue : public SugaredValue {
   Value* getValue() const {
     return value_;
   }
+
+  std::vector<Value*> fillInLoopInfo(
+    const SourceRange& loc,
+    Function& m,
+    Node* n) override;
 
  private:
   Value* value_;
@@ -402,6 +425,27 @@ struct TORCH_API IsInstanceValue : SugaredValue {
   std::string kind() const override {
     return "isinstance";
   }
+};
+
+// matched against for special handling of builtin functions or
+// iterables expressions like range(), zip(), enumerate(), etc.
+struct TORCH_API IterableValue : SugaredValue {
+  IterableValue(c10::Symbol sym, std::vector<Value*> iter_inputs)
+      : symbol_(sym), iter_inputs_(iter_inputs) {}
+  std::string kind() const override {
+    return "iterable";
+  }
+
+  std::vector<Value*> fillInLoopInfo(
+    const SourceRange& loc,
+    Function& m,
+    Node* n) override;
+
+ private:
+  // The symbol of the iterable function (e.g. `prim::range`).
+  c10::Symbol symbol_;
+  // The inputs to the iterable function
+  std::vector<Value*> iter_inputs_;
 };
 
 // This represents the "__new__" method on classes, which can't be a MethodValue
