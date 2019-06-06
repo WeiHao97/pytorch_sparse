@@ -1,6 +1,6 @@
 #pragma once
 
-#include <ATen/core/Type.h>
+#include <ATen/Type.h>
 #include <c10/core/Device.h>
 #include <c10/core/Layout.h>
 #include <c10/core/MemoryFormat.h>
@@ -13,7 +13,7 @@
 #include <c10/util/Exception.h>
 #include <c10/util/Optional.h>
 #include <ATen/core/LegacyTypeDispatch.h>
-#include <ATen/core/DeprecatedTypePropertiesRegistry.h>
+#include <ATen/DeprecatedTypePropertiesRegistry.h>
 
 namespace caffe2 {
 class Tensor;
@@ -405,4 +405,4 @@ Tensor make_tensor(Args&&... args) {
 
 } // namespace at
 
-#include <ATen/core/TensorMethods.h>
+#include <ATen/TensorMethods.h>
