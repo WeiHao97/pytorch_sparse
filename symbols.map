@@ -1,4 +1,9 @@
 {
+  global:
+    extern "C++" {
+      std::*caffe2*;
+      std::*torch*;
+    };
   local:
     # devtoolset / static-libstdc++ symbols
     __cxa_*;
