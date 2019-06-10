@@ -89,6 +89,12 @@ if(USE_ROCM)
   add_subdirectory(hip)
 endif()
 
+if(NOT APPLE AND NOT MSVC)
+  if (NOT TORCH_STATIC)
+    set_target_properties(c10 PROPERTIES LINK_FLAGS "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/../symbols.map")
+  endif()
+endif()
+
 # ---[ Installation
 # Note: for now, we will put all export path into one single Caffe2Targets group
 # to deal with the cmake deployment need. Inside the Caffe2Targets set, the

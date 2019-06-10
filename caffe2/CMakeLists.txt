@@ -524,7 +524,6 @@ endif()
 # Compile exposed libraries.
 add_library(caffe2 ${Caffe2_CPU_SRCS})
 
-
 option(TORCH_STATIC "Build libtorch.a rather than libtorch.so" OFF)
 
 
@@ -953,6 +952,14 @@ if (MSVC AND BUILD_SHARED_LIBS)
 endif()
 # Use -O2 for release builds (-O3 doesn't improve perf, and -Os results in perf regression)
 target_compile_options(caffe2 PRIVATE "$<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>:-O2>")
+
+if(NOT APPLE AND NOT MSVC)
+  if (NOT TORCH_STATIC)
+    set_target_properties(caffe2 PROPERTIES LINK_FLAGS "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/../symbols.map")
+    set_target_properties(torch PROPERTIES LINK_FLAGS "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/../symbols.map")
+  endif()
+endif()
+
 
 
 install(TARGETS caffe2 EXPORT Caffe2Targets DESTINATION lib)

@@ -150,7 +150,9 @@ else() # Linux
       -fno-strict-aliasing
       -Wno-write-strings
       -Wno-strict-aliasing)
-    list(APPEND TORCH_PYTHON_LINK_FLAGS "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/symbols.map")
+    if (NOT TORCH_STATIC)
+      list(APPEND TORCH_PYTHON_LINK_FLAGS "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/../symbols.map")
+    endif()
 endif()
 
 if (USE_CUDA)
