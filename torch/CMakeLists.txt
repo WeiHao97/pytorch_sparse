@@ -145,11 +145,12 @@ if (MSVC)
     endif()
 elseif (APPLE)
     string(APPEND TORCH_PYTHON_LINK_FLAGS " -undefined dynamic_lookup")
-else()
+else() # Linux
     list(APPEND TORCH_PYTHON_COMPILE_OPTIONS
       -fno-strict-aliasing
       -Wno-write-strings
       -Wno-strict-aliasing)
+    list(APPEND TORCH_PYTHON_LINK_FLAGS "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/symbols.map")
 endif()
 
 if (USE_CUDA)
