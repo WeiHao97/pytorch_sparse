@@ -657,6 +657,9 @@ def make_relative_rpath(path):
     else:
         return '-Wl,-rpath,$ORIGIN/' + path
 
+
+if IS_LINUX:
+    extra_link_args += ["-Wl,--version-script=symbols.map"]
 ################################################################################
 # Declare extensions and package
 ################################################################################
