@@ -19,6 +19,9 @@ for performance and multi-threading reasons.
 Creating TorchScript Code
 --------------------------
 
+.. autofunction:: script
+
+.. autofunction:: trace
 
 .. autoclass:: ScriptModule
     :members:
@@ -27,7 +30,6 @@ Creating TorchScript Code
 
 .. autofunction:: load
 
-.. autofunction:: trace
 
 
 Mixing Tracing and Scripting
@@ -77,7 +79,7 @@ Example::
 
     traced_bar = torch.jit.trace(bar, (torch.rand(3), torch.rand(3), torch.rand(3)))
 
-This composition also works for ``ScriptModule``\s as well, where it can be used to generate
+This composition also works for ``nn.Module``\s as well, where it can be used to generate
 a submodule using tracing that can be called from the methods of a script module:
 
 Example::
@@ -85,7 +87,7 @@ Example::
     import torch
     import torchvision
 
-    class MyScriptModule(torch.jit.ScriptModule):
+    class MyScriptModule(torch.nn.Module):
         def __init__(self):
             super(MyScriptModule, self).__init__()
             self.means = torch.nn.Parameter(torch.tensor([103.939, 116.779, 123.68])
@@ -93,9 +95,10 @@ Example::
             self.resnet = torch.jit.trace(torchvision.models.resnet18(),
                                           torch.rand(1, 3, 224, 224))
 
-        @torch.jit.script_method
         def forward(self, input):
             return self.resnet(input - self.means)
+
+    torch.jit.script(MyScriptModule)
 
 
 TorchScript Language Reference
