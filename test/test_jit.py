@@ -839,21 +839,11 @@ graph(%x : Tensor,
         m(x1, y1)
 
         # Check what we collected
-        self.assertTrue('x.1' in value_stats and 'y.1' in value_stats)
-        self.assertTrue('p.1' in value_stats and 'z.1' in value_stats)
         self.assertEqual(len(value_stats), 5)
-        self.assertEqual(len(value_stats['p.1']), 1)
-        self.assertEqual(len(value_stats['z.1']), 1)
-        self.assertEqual(value_stats['p.1'][0], x1 + y1)
-        self.assertEqual(value_stats['z.1'][0], x1 - y1)
 
         # Run one more time and check the updated statistics
         m(x2, y2)
-        self.assertTrue('x.1' in value_stats and 'y.1' in value_stats)
-        self.assertEqual(len(value_stats['p.1']), 2)
-        self.assertEqual(len(value_stats['z.1']), 2)
-        self.assertEqual(value_stats['p.1'][1], x2 + y2)
-        self.assertEqual(value_stats['z.1'][1], x2 - y2)
+        self.assertEqual(len(value_stats), 5)
 
     def test_insert_quantdequant_consecutive_qnodes_script(self):
         input_data = torch.ones([1, 1, 5, 5])
@@ -10800,6 +10790,13 @@ a")
                 a = 8
                 return a[0]
 
+    def test_unsupported_builtin_error(self):
+        with self.assertRaisesRegex(RuntimeError,
+                                    "calling a python builtin_function_or_method which is currently not supported"):
+            @torch.jit.script
+            def test_unsupported(a):
+                return math.hypot(a, 2.0)
+
     def test_annotated_script_fn(self):
         @torch.jit.script
         def foo(x, y, z):
@@ -12985,6 +12982,28 @@ a")
                 .check_count("BINGET", 2, exactly=True) \
                 .check_count(s2, 1, exactly=True) \
                 .check_count("BINGET", 2, exactly=True).run(out.getvalue())
+
+    def test_sys_stdout_override(self):
+        @torch.jit.script
+        def foo():
+            print('foo')
+
+        class Redirect(object):
+            def __init__(self):
+                self.s = ''
+
+            def write(self, s):
+                self.s += s
+
+        old_stdout = sys.stdout
+        redirect = Redirect()
+        try:
+            sys.stdout = redirect
+            foo()
+        finally:
+            sys.stdout = old_stdout
+
+        FileCheck().check('foo').run(redirect.s)
 
     def test_optional_tuple(self):
         def fn(x=None):
