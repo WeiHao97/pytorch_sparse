@@ -4,6 +4,9 @@ import sys
 
 # Modify this variable if you want to change the set of default jobs
 # which are run on all pull requests.
+#
+# WARNING: Actually, this is a lie; we're currently also controlling
+# the set of jobs to run via the Workflows filters in CircleCI config.
 
 default_set = [
     # PyTorch CPU
@@ -29,6 +32,7 @@ default_set = [
 
     # Binaries
     'manywheel 2.7mu cpu devtoolset3',
+    'libtorch 2.7m cpu devtoolset3',
 
     # Caffe2 Android
     'caffe2-py2-android-ubuntu16.04',

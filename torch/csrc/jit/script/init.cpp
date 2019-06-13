@@ -339,7 +339,7 @@ void initJitScriptBindings(PyObject* module) {
           "_set_attribute",
           [](Module& self, const std::string& name, py::object value) {
             auto attr = self.find_attribute(name);
-            AT_CHECK(attr != nullptr, "Could not find attribute '", name, "'");
+            TORCH_CHECK(attr != nullptr, "Could not find attribute '", name, "'");
             auto ivalue = toIValue(value, attr->type());
             attr->setValue(ivalue);
           })
@@ -556,6 +556,7 @@ void initJitScriptBindings(PyObject* module) {
             }
             return tensors;
           })
+      .def("_lowered_graph", &Method::_lowered_graph)
       .def_property_readonly("schema", &Method::getSchema)
       .def_property_readonly("name", &Method::name)
       .def_property_readonly("code", [](Method& self) {
@@ -565,6 +566,9 @@ void initJitScriptBindings(PyObject* module) {
         PythonPrint(ss, self.function(), true, tensors, classes, false);
         return ss.str();
       });
+  m.def(
+      "_jit_recursive_script",
+      []() { return getRecursiveScriptMode(); });
   m.def(
       "_jit_recursive_script",
       [](bool recurse) { getRecursiveScriptMode() = recurse; });
@@ -618,7 +622,7 @@ void initJitScriptBindings(PyObject* module) {
       });
 
   m.def("parse_type_comment", [](const std::string& comment) {
-    Parser p(comment);
+    Parser p(std::make_shared<Source>(comment));
     return Decl(p.parseTypeComment());
   });
 
@@ -662,7 +666,7 @@ void initJitScriptBindings(PyObject* module) {
         import_functions(
             CompilationUnit::_get_python_cu_const(),
             cu,
-            src,
+            std::make_shared<Source>(src),
             constant_table,
             self,
             nullptr);

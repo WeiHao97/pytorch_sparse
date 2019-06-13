@@ -8,9 +8,6 @@ namespace jit {
 namespace {
 
 at::Tensor unwrap_tensor(at::Tensor&& tensor) {
-  if (tensor.requires_grad()) {
-    throw std::runtime_error("Autograd not yet supported for c10 ops.");
-  }
   if (tensor.is_variable()) {
     return torch::autograd::Variable(std::move(tensor)).tensor_data();
   } else {
@@ -23,17 +20,19 @@ IValue unwrap(IValue&& ivalue) {
   if (ivalue.isTensor() && ivalue.toTensor().defined()) {
     return unwrap_tensor(std::move(ivalue).toTensor());
   } else if (ivalue.isTensorList()) {
-    for (auto& item : ivalue.toTensorList()->elements()) {
-      item = unwrap_tensor(std::move(item));
+    c10::ListPtr<at::Tensor> list = std::move(ivalue).toTensorList();
+    for (size_t i = 0; i < list.size(); ++i) {
+      list[i] = unwrap_tensor(list.extract(i));
     }
-    return std::move(ivalue);
+    return std::move(list);
   } else if (ivalue.isGenericList()) {
-    for (auto& item : ivalue.toGenericList()->elements()) {
-      item = unwrap(std::move(item));
+    c10::impl::GenericListPtr list = std::move(ivalue).toGenericList();
+    for (size_t i = 0; i < list.size(); ++i) {
+      list[i] = unwrap(list.extract(i));
     }
-    return std::move(ivalue);
+    return std::move(list);
   } else if (ivalue.isGenericDict()) {
-    for (auto& item : ivalue.toGenericDict()->elements()) {
+    for (auto& item : ivalue.toGenericDict()) {
       item.setValue(unwrap(item.value()));
     }
     return std::move(ivalue);
@@ -54,17 +53,19 @@ IValue wrap(IValue&& ivalue) {
   if (ivalue.isTensor()) {
     return wrap_tensor(std::move(ivalue).toTensor());
   } else if (ivalue.isTensorList()) {
-    for (auto& item : ivalue.toTensorList()->elements()) {
-      item = wrap_tensor(std::move(item));
+    c10::ListPtr<at::Tensor> list = std::move(ivalue).toTensorList();
+    for (size_t i = 0; i < list.size(); ++i) {
+      list[i] = wrap_tensor(list.extract(i));
     }
-    return std::move(ivalue);
+    return std::move(list);
   } else if (ivalue.isGenericList()) {
-    for (auto& item : ivalue.toGenericList()->elements()) {
-      item = wrap(std::move(item));
+    c10::impl::GenericListPtr list = std::move(ivalue).toGenericList();
+    for (size_t i = 0; i < list.size(); ++i) {
+      list[i] = wrap(list.extract(i));
     }
-    return std::move(ivalue);
+    return std::move(list);
   } else if (ivalue.isGenericDict()) {
-    for (auto& item : ivalue.toGenericDict()->elements()) {
+    for (auto& item : ivalue.toGenericDict()) {
       item.setValue(wrap(item.value()));
     }
     return std::move(ivalue);
@@ -76,7 +77,7 @@ IValue wrap(IValue&& ivalue) {
 // TODO This currently only handles tensors with requires_grad==False correctly.
 //      It should also handle autograd.
 Operator createOperatorFromC10(const c10::OperatorHandle& op) {
-  return Operator(op.schema(), [op](Stack& stack) {
+  return Operator(op, [op](Stack& stack) {
       RECORD_FUNCTION(op.schema().name(), stack);
 
       const auto input_size = op.schema().arguments().size();
@@ -135,16 +136,16 @@ Operator createOperatorFromC10(const c10::OperatorHandle& op) {
                 reinterpret_cast<ListType*>(type.get())->getElementType();
             if (elem_type->isSubclass(TypeKind::TensorType)) {
               AT_ASSERT(iter->isTensorList());
-              at::ArrayRef<at::Tensor> tensor_list(iter->toTensorListRef());
-              tracer::addInputs(node, args[i].name().c_str(), tensor_list);
+              auto list = iter->toTensorListRef();
+              tracer::addInputs(node, args[i].name().c_str(), list);
             } else if (elem_type->kind() == TypeKind::FloatType) {
               AT_ASSERT(iter->isDoubleList());
               // NB: now, tracer doesn't support tracing double list. We add special
               // handling here, since in our case, we assume that all the doubles
               // in the list are constants
-              const std::vector<double>& value = iter->toDoubleListRef();
+              auto value = iter->toDoubleListRef();
               std::vector<Value*> info(value.size());
-              for (int value_index = 0; value_index < value.size(); ++value_index) {
+              for (size_t value_index = 0; value_index < value.size(); ++value_index) {
                 info[value_index] = graph->insertConstant(value[value_index]);
                 tracer::recordSourceLocation(info[value_index]->node());
               }
@@ -157,7 +158,7 @@ Operator createOperatorFromC10(const c10::OperatorHandle& op) {
             } else if (elem_type->kind() == TypeKind::BoolType) {
               AT_ASSERT(iter->isBoolList());
               tracer::addInputs(
-                  node, args[i].name().c_str(), iter->toBoolListRef());
+                  node, args[i].name().c_str(), c10::impl::toVector(iter->toBoolList()));
             } else {
               throw std::runtime_error(
                   "unsupported input list type: " + elem_type->str());
@@ -194,7 +195,7 @@ Operator createOperatorFromC10(const c10::OperatorHandle& op) {
                 reinterpret_cast<ListType*>(type.get())->getElementType();
             if (elem_type->isSubclass(TypeKind::TensorType)) {
               AT_ASSERT(iter->isTensorList());
-              tracer::addOutput(node, iter->toTensorList()->elements());
+              tracer::addOutput(node, iter->toTensorList());
             } else {
               throw std::runtime_error(
                   "unsupported ouptut list type: " + elem_type->str());
