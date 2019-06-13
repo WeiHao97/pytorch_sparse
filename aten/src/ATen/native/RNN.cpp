@@ -2,6 +2,7 @@
 
 #include <ATen/ATen.h>
 #include <ATen/NativeFunctions.h>
+#include <ATen/Parallel.h>
 
 namespace at { namespace native {
 
@@ -336,12 +337,13 @@ struct FullLayer : Layer<Tensor, hidden_type, cell_params> {
   FullLayer(Cell<hidden_type, cell_params>& cell)
     : cell_(cell) {};
 
-  unstacked_output_type operator()(std::vector<Tensor> step_inputs, const hidden_type& input_hidden, const cell_params& params) const {
-    std::vector<Tensor> step_outputs;
+  unstacked_output_type operator()(const std::vector<Tensor>& step_inputs, const hidden_type& input_hidden, const cell_params& params, bool reverse = false) const {
+    std::vector<Tensor> step_outputs(step_inputs.size());
     auto hidden = input_hidden;
-    for (size_t i = 0; i < step_inputs.size(); i++) {
-      hidden = cell_(step_inputs[i], hidden, params);
-      step_outputs.push_back(hidden_as_output(hidden));
+    for (size_t idx = 0; idx < step_inputs.size(); idx++) {
+      size_t input_idx = reverse ? step_inputs.size() - 1 - idx : idx;
+      hidden = cell_(step_inputs[input_idx], hidden, params);
+      step_outputs[input_idx] = hidden_as_output(hidden);
     }
     return {step_outputs, hidden};
   }
@@ -365,21 +367,45 @@ struct FullBidirectionalLayer : Layer<Tensor, pair_of<dir_hidden_type>, pair_of<
 
   output_type operator()(const Tensor& input, const hidden_type& input_hidden, const param_type& params) const override {
     auto step_inputs = input.unbind(0);
-    auto fw_result = layer_(step_inputs, input_hidden.first, params.first);
-    auto fw_output = at::stack(fw_result.outputs, 0);
 
-    auto rev_step_inputs = reverse(std::move(step_inputs));
-    auto rev_result = layer_(rev_step_inputs, input_hidden.second, params.second);
-    std::reverse(rev_result.outputs.begin(), rev_result.outputs.end());
-    auto rev_output = at::stack(rev_result.outputs, 0);
+    using unstacked_output_type = typename FullLayer<dir_hidden_type, cell_params>::unstacked_output_type;
+
+    unstacked_output_type fw_result;
+    at::Tensor fw_output;
+
+    unstacked_output_type rev_result;
+    at::Tensor rev_output;
+
+    if (at::get_num_threads() > 1) {
+#if AT_PARALLEL_NATIVE_TBB
+      at::intraop_invoke([&]() {
+        fw_result = layer_(step_inputs, input_hidden.first, params.first);
+        fw_output = at::stack(fw_result.outputs, 0);
+      }, [&]() {
+        rev_result = layer_(step_inputs, input_hidden.second, params.second, /* reverse */ true);
+        rev_output = at::stack(rev_result.outputs, 0);
+      });
+#else
+      auto fut = at::intraop_launch_future([&]() {
+        fw_result = layer_(step_inputs, input_hidden.first, params.first);
+        fw_output = at::stack(fw_result.outputs, 0);
+      });
+
+      rev_result = layer_(step_inputs, input_hidden.second, params.second, /* reverse */ true);
+      rev_output = at::stack(rev_result.outputs, 0);
+
+      // wait for the forward pass
+      fut->wait();
+#endif
+    } else {
+      fw_result = layer_(step_inputs, input_hidden.first, params.first);
+      fw_output = at::stack(fw_result.outputs, 0);
+      rev_result = layer_(step_inputs, input_hidden.second, params.second, /* reverse */ true);
+      rev_output = at::stack(rev_result.outputs, 0);
+    }
 
     return {at::cat({fw_output, rev_output}, fw_output.dim() - 1),
             std::make_pair(fw_result.final_hidden, rev_result.final_hidden)};
-  }
-
-  std::vector<Tensor> reverse(std::vector<Tensor>&& x) const {
-    std::reverse(x.begin(), x.end());
-    return std::move(x);
   }
 
   FullLayer<dir_hidden_type, cell_params> layer_;
@@ -439,9 +465,9 @@ struct ReversedPackedLayer : Layer<PackedSequence, hidden_type, cell_params> {
     : cell_(cell) {};
 
   output_type operator()(const PackedSequence& input, const hidden_type& input_hidden, const cell_params& params) const override {
-    std::vector<at::Tensor> step_outputs;
     int64_t input_offset = input.data.size(0);
     int64_t num_steps = input.batch_sizes.size(0);
+    std::vector<at::Tensor> step_outputs(num_steps);
     int64_t* batch_sizes = input.batch_sizes.data<int64_t>();
     int64_t last_batch_size = batch_sizes[num_steps - 1];
 
@@ -462,9 +488,8 @@ struct ReversedPackedLayer : Layer<PackedSequence, hidden_type, cell_params> {
 
       last_batch_size = batch_size;
       hidden = cell_(step_input, hidden, params);
-      step_outputs.push_back(hidden_as_output(hidden));
+      step_outputs[i] = hidden_as_output(hidden);
     }
-    std::reverse(step_outputs.begin(), step_outputs.end());
     return { PackedSequence{ at::cat(step_outputs, 0), input.batch_sizes }, hidden };
   }
 
@@ -481,8 +506,30 @@ struct PackedBidirectionalLayer : Layer<PackedSequence, pair_of<dir_hidden_type>
     : layer_(cell), rev_layer_(cell) {};
 
   output_type operator()(const PackedSequence& input, const hidden_type& input_hidden, const param_type& params) const override {
-    auto fw_result = layer_(input, input_hidden.first, params.first);
-    auto rev_result = rev_layer_(input, input_hidden.second, params.second);
+
+    typename PackedLayer<dir_hidden_type, cell_params>::output_type fw_result;
+    typename ReversedPackedLayer<dir_hidden_type, cell_params>::output_type rev_result;
+
+    if (at::get_num_threads() > 1) {
+#if AT_PARALLEL_NATIVE_TBB
+      at::intraop_invoke([&]() {
+        fw_result = layer_(input, input_hidden.first, params.first);
+      }, [&]() {
+        rev_result = rev_layer_(input, input_hidden.second, params.second);
+      });
+#else
+      auto fut = at::intraop_launch_future([&]() {
+        fw_result = layer_(input, input_hidden.first, params.first);
+      });
+      rev_result = rev_layer_(input, input_hidden.second, params.second);
+
+      fut->wait();
+#endif
+    } else {
+      fw_result = layer_(input, input_hidden.first, params.first);
+      rev_result = rev_layer_(input, input_hidden.second, params.second);
+    }
+
     PackedSequence output { at::cat({fw_result.outputs.data, rev_result.outputs.data}, -1), input.batch_sizes };
     return { output, std::make_pair(fw_result.final_hidden, rev_result.final_hidden) };
   }
