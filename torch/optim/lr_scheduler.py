@@ -1,8 +1,9 @@
 import types
 import math
-from torch._six import inf
-from functools import partial, wraps
 import warnings
+from torch._six import inf
+from collections import Counter
+from functools import partial, wraps
 from bisect import bisect_right
 
 from .optimizer import Optimizer
@@ -60,6 +61,15 @@ class _LRScheduler(object):
         self.__dict__.update(state_dict)
 
     def get_lr(self):
+        # Return last computed learning rate by current scheduler
+        return self._last_computed_lr
+
+    def _compute_lr(self):
+        # NOTE [LR Recursive Form] Compute the learning rate using the recursive form of the scheduler
+        raise NotImplementedError
+
+    def _compute_lr_closed_form(self):
+        # NOTE [LR Closed Form] Compute the learning rate using the closed form of the scheduler
         raise NotImplementedError
 
     def step(self, epoch=None):
@@ -82,11 +92,26 @@ class _LRScheduler(object):
                               "https://pytorch.org/docs/stable/optim.html#how-to-adjust-learning-rate", UserWarning)
         self._step_count += 1
 
+        compute_lr = self._compute_lr
         if epoch is None:
             epoch = self.last_epoch + 1
+        elif (
+                (self.last_epoch > 0 or epoch != 0)
+                and epoch != self.last_epoch + 1
+        ):
+            compute_lr = self._compute_lr_closed_form
+            warnings.warn(
+                "If an epoch parameter different from the current epoch is passed, "
+                "the recursive form of the scheduler is overridden by its closed form "
+                "whenever available, and will be deprecated.",
+                DeprecationWarning,
+            )
+
         self.last_epoch = epoch
-        for param_group, lr in zip(self.optimizer.param_groups, self.get_lr()):
+        for param_group, lr in zip(self.optimizer.param_groups, compute_lr()):
             param_group['lr'] = lr
+
+        self._last_computed_lr = [group['lr'] for group in self.optimizer.param_groups]
 
 
 class LambdaLR(_LRScheduler):
@@ -154,15 +179,16 @@ class LambdaLR(_LRScheduler):
             if fn is not None:
                 self.lr_lambdas[idx].__dict__.update(fn)
 
-    def get_lr(self):
+    def _compute_lr(self):
         return [base_lr * lmbda(self.last_epoch)
                 for lmbda, base_lr in zip(self.lr_lambdas, self.base_lrs)]
 
 
 class StepLR(_LRScheduler):
-    """Sets the learning rate of each parameter group to the initial lr
-    decayed by gamma every step_size epochs. When last_epoch=-1, sets
-    initial lr as lr.
+    """Decays the learning rate of each parameter group by gamma every
+    step_size epochs. Notice that such decay can happen simultaneously with
+    other changes to the learning rate from outside this scheduler. When
+    last_epoch=-1, sets initial lr as lr.
 
     Args:
         optimizer (Optimizer): Wrapped optimizer.
@@ -189,15 +215,22 @@ class StepLR(_LRScheduler):
         self.gamma = gamma
         super(StepLR, self).__init__(optimizer, last_epoch)
 
-    def get_lr(self):
+    def _compute_lr(self):
+        if (self.last_epoch == 0) or (self.last_epoch % self.step_size != 0):
+            return [group['lr'] for group in self.optimizer.param_groups]
+        return [group['lr'] * self.gamma
+                for group in self.optimizer.param_groups]
+
+    def _compute_lr_closed_form(self):
         return [base_lr * self.gamma ** (self.last_epoch // self.step_size)
                 for base_lr in self.base_lrs]
 
 
 class MultiStepLR(_LRScheduler):
-    """Set the learning rate of each parameter group to the initial lr decayed
-    by gamma once the number of epoch reaches one of the milestones. When
-    last_epoch=-1, sets initial lr as lr.
+    """Decays the learning rate of each parameter group by gamma once the
+    number of epoch reaches one of the milestones. Notice that such decay can
+    happen simultaneously with other changes to the learning rate from outside
+    this scheduler. When last_epoch=-1, sets initial lr as lr.
 
     Args:
         optimizer (Optimizer): Wrapped optimizer.
@@ -219,21 +252,24 @@ class MultiStepLR(_LRScheduler):
     """
 
     def __init__(self, optimizer, milestones, gamma=0.1, last_epoch=-1):
-        if not list(milestones) == sorted(milestones):
-            raise ValueError('Milestones should be a list of'
-                             ' increasing integers. Got {}', milestones)
-        self.milestones = milestones
+        self.milestones = Counter(milestones)
         self.gamma = gamma
         super(MultiStepLR, self).__init__(optimizer, last_epoch)
 
-    def get_lr(self):
+    def _compute_lr(self):
+        if self.last_epoch not in self.milestones:
+            return [group['lr'] for group in self.optimizer.param_groups]
+        return [group['lr'] * self.gamma ** self.milestones[self.last_epoch]
+                for group in self.optimizer.param_groups]
+
+    def _compute_lr_closed_form(self):
         return [base_lr * self.gamma ** bisect_right(self.milestones, self.last_epoch)
                 for base_lr in self.base_lrs]
 
 
 class ExponentialLR(_LRScheduler):
-    """Set the learning rate of each parameter group to the initial lr decayed
-    by gamma every epoch. When last_epoch=-1, sets initial lr as lr.
+    """Decays the learning rate of each parameter group by gamma every epoch.
+    When last_epoch=-1, sets initial lr as lr.
 
     Args:
         optimizer (Optimizer): Wrapped optimizer.
@@ -245,7 +281,13 @@ class ExponentialLR(_LRScheduler):
         self.gamma = gamma
         super(ExponentialLR, self).__init__(optimizer, last_epoch)
 
-    def get_lr(self):
+    def _compute_lr(self):
+        if self.last_epoch == 0:
+            return self.base_lrs
+        return [group['lr'] * self.gamma
+                for group in self.optimizer.param_groups]
+
+    def _compute_lr_closed_form(self):
         return [base_lr * self.gamma ** self.last_epoch
                 for base_lr in self.base_lrs]
 
@@ -256,10 +298,21 @@ class CosineAnnealingLR(_LRScheduler):
     :math:`T_{cur}` is the number of epochs since the last restart in SGDR:
 
     .. math::
+        \eta_{t+1} = \eta_{min} + (\eta_t - \eta_{min})\frac{1 +
+        \cos(\frac{T_{cur}+1}{T_{max}}\pi)}{1 + \cos(\frac{T_{cur}}{T_{max}}\pi)},
+        T_{cur} \neq (2k+1)T_{max};\\
+        \eta_{t+1} = \eta_{t} + (\eta_{max} - \eta_{min})\frac{1 -
+        \cos(\frac{1}{T_{max}}\pi)}{2},
+        T_{cur} = (2k+1)T_{max}.\\
+
+    When last_epoch=-1, sets initial lr as lr. Notice that because the schedule
+    is defined recursively, the learning rate can be simultaneously modified
+    outside this scheduler by other operators. If the learning rate is set
+    solely by this scheduler, the learning rate at each step becomes:
+
+    .. math::
         \eta_t = \eta_{min} + \frac{1}{2}(\eta_{max} - \eta_{min})(1 +
         \cos(\frac{T_{cur}}{T_{max}}\pi))
-
-    When last_epoch=-1, sets initial lr as lr.
 
     It has been proposed in
     `SGDR: Stochastic Gradient Descent with Warm Restarts`_. Note that this only
@@ -280,7 +333,20 @@ class CosineAnnealingLR(_LRScheduler):
         self.eta_min = eta_min
         super(CosineAnnealingLR, self).__init__(optimizer, last_epoch)
 
-    def get_lr(self):
+    def _compute_lr(self):
+        if self.last_epoch == 0:
+            return self.base_lrs
+        elif (self.last_epoch - 1 - self.T_max) % (2 * self.T_max) == 0:
+            return [group['lr'] + (base_lr - self.eta_min) *
+                    (1 - math.cos(math.pi / self.T_max)) / 2
+                    for base_lr, group in
+                    zip(self.base_lrs, self.optimizer.param_groups)]
+        return [(1 + math.cos(math.pi * self.last_epoch / self.T_max)) /
+                (1 + math.cos(math.pi * (self.last_epoch - 1) / self.T_max)) *
+                (group['lr'] - self.eta_min) + self.eta_min
+                for group in self.optimizer.param_groups]
+
+    def _compute_lr_closed_form(self):
         return [self.eta_min + (base_lr - self.eta_min) *
                 (1 + math.cos(math.pi * self.last_epoch / self.T_max)) / 2
                 for base_lr in self.base_lrs]
@@ -400,6 +466,8 @@ class ReduceLROnPlateau(object):
             self._reduce_lr(epoch)
             self.cooldown_counter = self.cooldown
             self.num_bad_epochs = 0
+
+        self._last_computed_lr = [group['lr'] for group in self.optimizer.param_groups]
 
     def _reduce_lr(self, epoch):
         for i, param_group in enumerate(self.optimizer.param_groups):
@@ -631,7 +699,7 @@ class CyclicLR(_LRScheduler):
     def _exp_range_scale_fn(self, x):
         return self.gamma**(x)
 
-    def get_lr(self):
+    def _compute_lr(self):
         """Calculates the learning rate at batch index. This function treats
         `self.last_epoch` as the last batch index.
 
@@ -708,7 +776,7 @@ class CosineAnnealingWarmRestarts(_LRScheduler):
         super(CosineAnnealingWarmRestarts, self).__init__(optimizer, last_epoch)
         self.T_cur = last_epoch
 
-    def get_lr(self):
+    def _compute_lr(self):
         return [self.eta_min + (base_lr - self.eta_min) * (1 + math.cos(math.pi * self.T_cur / self.T_i)) / 2
                 for base_lr in self.base_lrs]
 
@@ -757,5 +825,7 @@ class CosineAnnealingWarmRestarts(_LRScheduler):
                 self.T_i = self.T_0
                 self.T_cur = epoch
         self.last_epoch = math.floor(epoch)
-        for param_group, lr in zip(self.optimizer.param_groups, self.get_lr()):
+        for param_group, lr in zip(self.optimizer.param_groups, self._compute_lr()):
             param_group['lr'] = lr
+
+        self._last_computed_lr = [group['lr'] for group in self.optimizer.param_groups]
