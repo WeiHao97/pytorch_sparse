@@ -415,6 +415,10 @@ static PyObject * THPVariable_bool(PyObject* self, PyObject* args) {
   return THPVariable_to_type(self, ScalarType::Bool);
 }
 
+static PyObject * THPVariable_bfloat16(PyObject* self, PyObject* args) {
+  return THPVariable_to_type(self, ScalarType::BFloat16);
+}
+
 static PyObject * THPVariable_element_size(PyObject* self, PyObject* args)
 {
   HANDLE_TH_ERRORS
@@ -750,6 +754,7 @@ PyMethodDef variable_methods[] = {
   {"get_device", (PyCFunction)THPVariable_get_device, METH_NOARGS, NULL},
   {"bool", (PyCFunction)THPVariable_bool, METH_NOARGS, NULL},
   {"half", (PyCFunction)THPVariable_half, METH_NOARGS, NULL},
+  {"bfloat16", (PyCFunction)THPVariable_bfloat16, METH_NOARGS, NULL},
   {"int", (PyCFunction)THPVariable_int, METH_NOARGS, NULL},
   {"is_contiguous", (PyCFunction)THPVariable_is_contiguous, METH_VARARGS | METH_KEYWORDS, NULL},
   {"item", (PyCFunction)THPVariable_item, METH_NOARGS, NULL},

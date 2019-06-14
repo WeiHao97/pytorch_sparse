@@ -5,13 +5,14 @@
 
 #define scalar_t at::BFloat16
 #define Real BFloat16
-
+#define accreal float
 #define CReal CudaBFloat16
 
 #define THC_REAL_IS_BFLOAT16
 #line 1 THC_GENERIC_FILE
 #include THC_GENERIC_FILE
 #undef scalar_t
+#undef accreal
 #undef Real
 
 #undef CReal

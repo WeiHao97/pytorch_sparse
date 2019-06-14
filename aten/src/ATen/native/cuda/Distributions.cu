@@ -343,7 +343,7 @@ namespace detail {
 
 Generator* getDefaultCUDAGenerator() {
   globalContext().lazyInitCUDA();
-  return globalContext().generator_registry[static_cast<int>(DeviceType::CUDA)].get(); 
+  return globalContext().generator_registry[static_cast<int>(DeviceType::CUDA)].get();
 }
 
 } // namespace detail
@@ -394,8 +394,8 @@ Tensor _dirichlet_grad_cuda(const Tensor& x, const Tensor& alpha, const Tensor& 
 
 Tensor& bernoulli_tensor_cuda_(Tensor &self, const Tensor& p_, Generator* gen) {
   auto p = std::get<0>(expand_inplace(self, p_.to(kCUDA)));
-  AT_DISPATCH_ALL_TYPES_AND(
-    at::ScalarType::Half, self.scalar_type(), "bernoulli_tensor_cuda_self_", [&] {
+  AT_DISPATCH_ALL_TYPES_AND2(
+    at::ScalarType::Half, at::ScalarType::BFloat16, self.scalar_type(), "bernoulli_tensor_cuda_self_", [&] {
       using self_t = scalar_t;
       auto seeds = next_philox_seed(gen, 10);
       AT_DISPATCH_FLOATING_TYPES_AND_HALF(p.scalar_type(), "bernoulli_tensor_cuda_p_", [&] {
@@ -447,7 +447,7 @@ void uniform_kernel_cuda(TensorIterator& iter, double from_, double to_, Generat
 
 void random_kernel_cuda(TensorIterator& iter, uint64_t range, int64_t base, Generator* gen_) {
   auto gen = get_generator_or_default<CUDAGenerator>(gen_, detail::getDefaultCUDAGenerator());
-  AT_DISPATCH_ALL_TYPES_AND2(at::ScalarType::Bool, at::ScalarType::Half, iter.dtype(), "random_cuda", [&] {
+  AT_DISPATCH_ALL_TYPES_AND3(at::ScalarType::Bool, at::ScalarType::Half, at::ScalarType::BFloat16, iter.dtype(), "random_cuda", [&] {
     if (std::is_same<scalar_t, double>::value || std::is_same<scalar_t, int64_t>::value) {
       // define lambda to mod with range and add base
       auto random_func = [range, base] __device__ (uint64_t rand) {
@@ -510,7 +510,7 @@ void cauchy_kernel_cuda(TensorIterator& iter, double median_, double sigma_, Gen
     if (std::is_same<scalar_t, double>::value) {
       // define lambda for cauchy transformation
       auto cauchy_func = [median, sigma] __device__ (accscalar_t rand) {
-        return static_cast<scalar_t>(median + sigma * 
+        return static_cast<scalar_t>(median + sigma *
                 ::tan(static_cast<accscalar_t>(M_PI) * (rand-static_cast<accscalar_t>(0.5))));
       };
       distribution_nullary_kernel<scalar_t, accscalar_t, curand4_engine_calls/2>(iter,
@@ -520,7 +520,7 @@ void cauchy_kernel_cuda(TensorIterator& iter, double median_, double sigma_, Gen
     } else {
       // use __tanf fast approximation for peak bandwidth
       auto cauchy_func = [median, sigma] __device__ (accscalar_t rand) {
-        return static_cast<scalar_t>(median + sigma * 
+        return static_cast<scalar_t>(median + sigma *
                 __tanf(static_cast<accscalar_t>(M_PI) * (rand-static_cast<accscalar_t>(0.5))));
       };
       distribution_nullary_kernel<scalar_t, accscalar_t, curand4_engine_calls>(iter,
@@ -577,7 +577,7 @@ void exponential_kernel_cuda(TensorIterator& iter, double lambda_, Generator* ge
 
 void geometric_kernel_cuda(TensorIterator& iter, double p_, Generator* gen_) {
   auto gen = get_generator_or_default<CUDAGenerator>(gen_, detail::getDefaultCUDAGenerator());
-  AT_DISPATCH_ALL_TYPES_AND(at::ScalarType::Half, iter.dtype(), "geometric_cuda", [&] {
+  AT_DISPATCH_ALL_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, iter.dtype(), "geometric_cuda", [&] {
     if (std::is_same<scalar_t, double>::value) {
       // define lambda for geometric transformation
       auto geometric_func = [p_] __device__ (double rand) {
@@ -631,7 +631,7 @@ void log_normal_kernel_cuda(TensorIterator& iter, double mean_, double std_, Gen
 
 void bernoulli_scalar_cuda_kernel(TensorIterator& iter, double p_, Generator* gen_) {
   auto gen = get_generator_or_default<CUDAGenerator>(gen_, detail::getDefaultCUDAGenerator());
-  AT_DISPATCH_ALL_TYPES_AND(at::ScalarType::Half, iter.dtype(), "bernoulli_scalar_cuda_", [&] {
+  AT_DISPATCH_ALL_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, iter.dtype(), "bernoulli_scalar_cuda_", [&] {
       if (std::is_same<scalar_t, double>::value) {
       // define lambda for bernoulli transformation
       auto bernoulli_func = [p_] __device__ (double rand) {

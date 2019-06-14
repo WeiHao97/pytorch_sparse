@@ -21,7 +21,7 @@ void add_kernel_impl(TensorIterator& iter, Scalar alpha_scalar) {
 }
 
 static void add_kernel_cuda(TensorIterator& iter, Scalar alpha_scalar) {
-  AT_DISPATCH_ALL_TYPES_AND(at::ScalarType::Half, iter.dtype(), "add_cuda", [&]() {
+  AT_DISPATCH_ALL_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, iter.dtype(), "add_cuda", [&]() {
     add_kernel_impl<scalar_t>(iter, alpha_scalar);
   });
 }
@@ -73,7 +73,7 @@ void mul_kernel_impl(TensorIterator& iter) {
 }
 
 static void mul_kernel_cuda(TensorIterator& iter) {
-  AT_DISPATCH_ALL_TYPES_AND(at::ScalarType::Half, iter.dtype(), "mul_cuda", [&]() {
+  AT_DISPATCH_ALL_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, iter.dtype(), "mul_cuda", [&]() {
     mul_kernel_impl<scalar_t>(iter);
   });
 }

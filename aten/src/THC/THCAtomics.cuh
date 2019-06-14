@@ -116,6 +116,27 @@ static inline  __device__ void atomicAdd(at::Half *address, at::Half val) {
 
 }
 
+static inline  __device__ void atomicAdd(at::BFloat16 *address, at::BFloat16 val) {
+  #if ((CUDA_VERSION < 10000) || (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 700)))
+    unsigned int * address_as_ui =
+      (unsigned int *) ((char *)address - ((size_t)address & 2));
+    unsigned int old = *address_as_ui;
+    unsigned int assumed;
+
+    do {
+      assumed = old;
+      at::BFloat16 hsum;
+      hsum.val_ = (size_t)address & 2 ? (old >> 16) : (old & 0xffff);
+      hsum = THCNumerics<at::BFloat16>::add(hsum, val);
+      old = (size_t)address & 2 ? (old & 0xffff) | (hsum.val_ << 16) : (old & 0xffff0000) | hsum.val_;
+      old = atomicCAS(address_as_ui, assumed, old);
+    } while (assumed != old);
+  #else
+    atomicAdd(reinterpret_cast<__half*>(address), val);
+  #endif
+
+}
+
 #if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 600 || CUDA_VERSION < 8000)
 // from CUDA C Programmic Guide
 static inline  __device__  void atomicAdd(double *address, double val) {

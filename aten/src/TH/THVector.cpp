@@ -25,6 +25,9 @@
 #include <TH/THGenerateHalfType.h>
 
 #include <TH/generic/THVectorDefault.cpp>
+#include <TH/THGenerateBFloat16Type.h>
+
+#include <TH/generic/THVectorDefault.cpp>
 #include <TH/THGenerateBoolType.h>
 
 #include <TH/generic/THVectorDispatch.cpp>
@@ -32,6 +35,9 @@
 
 #include <TH/generic/THVectorDispatch.cpp>
 #include <TH/THGenerateHalfType.h>
+
+#include <TH/generic/THVectorDispatch.cpp>
+#include <TH/THGenerateBFloat16Type.h>
 
 #include <TH/generic/THVectorDispatch.cpp>
 #include <TH/THGenerateBoolType.h>

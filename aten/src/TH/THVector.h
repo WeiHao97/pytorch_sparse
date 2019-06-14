@@ -15,6 +15,9 @@
 #include <TH/THGenerateHalfType.h>
 
 #include <TH/generic/THVector.h>
+#include <TH/THGenerateBFloat16Type.h>
+
+#include <TH/generic/THVector.h>
 #include <TH/THGenerateBoolType.h>
 
 #endif // TH_VECTOR_INC

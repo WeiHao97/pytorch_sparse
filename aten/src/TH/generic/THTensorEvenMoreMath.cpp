@@ -69,7 +69,7 @@ void THTensor_(nonzero)(THLongTensor *subscript, THTensor *tensor)
 #undef IS_NONZERO
 }
 
-#if !defined(TH_REAL_IS_HALF) /* non half only part */
+#if !defined(TH_REAL_IS_HALF) && !defined(TH_REAL_IS_BFLOAT16) /* non half and bfloat16 only part */
 
 accreal THTensor_(sumall)(THTensor *tensor)
 {
@@ -123,7 +123,7 @@ void THTensor_(maskedSelectBool)(THTensor *tensor, THTensor *src, THBoolTensor *
 
 void THTensor_(bitand)(THTensor *r_, THTensor *t, scalar_t value)
 {
-#if defined(TH_REAL_IS_FLOAT) || defined(TH_REAL_IS_DOUBLE) || defined(TH_REAL_IS_HALF)
+#if defined(TH_REAL_IS_FLOAT) || defined(TH_REAL_IS_DOUBLE) || defined(TH_REAL_IS_HALF) || defined(TH_REAL_IS_BFLOAT16)
   (void)r_;
   (void)t;
   (void)value;
@@ -781,6 +781,8 @@ void THTensor_(lshift)(THTensor *r_, THTensor *t, scalar_t value)
   return THTensor_(mul)(r_, t, pow(2, value));
 #elif defined(TH_REAL_IS_HALF)
   return THError("lshift is not supported for torch.HalfTensor");
+#elif defined(TH_REAL_IS_BFLOAT16)
+  return THError("lshift is not supported for torch.BFloat16Tensor");
 #else
   THTensor_(resizeAs)(r_, t);
   int64_t r_Size = THTensor_(nElement)(r_);
@@ -817,6 +819,8 @@ void THTensor_(rshift)(THTensor *r_, THTensor *t, scalar_t value)
   return THTensor_(div)(r_, t, pow(2, value));
 #elif defined(TH_REAL_IS_HALF)
   return THError("rshift is not supported for torch.HalfTensor");
+  #elif defined(TH_REAL_IS_BFLOAT16)
+    return THError("rshift is not supported for torch.BFloat16Tensor");
 #else
   THTensor_(resizeAs)(r_, t);
   int64_t r_Size = THTensor_(nElement)(r_);

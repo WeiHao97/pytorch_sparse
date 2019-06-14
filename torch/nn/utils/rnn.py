@@ -132,6 +132,14 @@ class PackedSequence(PackedSequence_):
         return type(self)(self.data.half(), self.batch_sizes,
                           self.sorted_indices, self.unsorted_indices)
 
+    def bfloat16(self):
+        r"""Returns copy with `self.data` cast to bfloat16 type"""
+
+        # Why not convert `batch_sizes`?
+        # See NOTE [ device and dtype of a PackedSequence ]
+        return type(self)(self.data.bfloat16(), self.batch_sizes,
+                          self.sorted_indices, self.unsorted_indices)
+
     def long(self):
         r"""Returns copy with `self.data` cast to long type"""
 

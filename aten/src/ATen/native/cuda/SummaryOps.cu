@@ -348,8 +348,8 @@ Tensor _histc_cuda(
     int64_t nbins,
     Scalar min,
     Scalar max) {
-  if (self.scalar_type() == ScalarType::Half) {
-    AT_ERROR("HalfTensor is not supported");
+  if (self.scalar_type() == ScalarType::Half || self.scalar_type() == ScalarType::BFloat16) {
+    AT_ERROR("HalfTensor and BFloat16 tensors are not supported");
   }
   return AT_DISPATCH_ALL_TYPES(self.scalar_type(), "histc", [&] {
     return _histc_cuda_template<scalar_t>(self, nbins, min.to<scalar_t>(), max.to<scalar_t>());

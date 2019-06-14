@@ -3,6 +3,7 @@
   cname: set
   variants: function
   cpu_half: True
+  cpu_bfloat16: True
   cpu_bool: True
   cuda_bool: True
   device_guard: False
@@ -41,6 +42,7 @@
   cname: fill
   variants: function
   cpu_half: True
+  cpu_bfloat16: True
   cpu_bool: True
   cuda_bool: True
   options:
@@ -58,6 +60,7 @@
   variants:
     - function
   cpu_half: True
+  cpu_bfloat16: True
   cpu_bool: True
   cuda_bool: True
   device_guard: False
@@ -158,6 +161,7 @@
   name: _th_nonzero
   cname: nonzero
   cpu_half: True
+  cpu_bfloat16: True
   cpu_bool: True
   cuda_bool: True
   variants:
@@ -176,6 +180,7 @@
   variants:
     - function
   cpu_half: True
+  cpu_bfloat16: True
   cpu_bool: True
   cuda_bool: True
   arguments:
@@ -185,6 +190,7 @@
   name: _th_view
   cname: newView
   cpu_half: True
+  cpu_bfloat16: True
   cpu_bool: True
   cuda_bool: True
   variants:
@@ -200,6 +206,7 @@
   name: _th_resize_as_
   cname: resizeAs
   cpu_half: True
+  cpu_bfloat16: True
   cpu_bool: True
   cuda_bool: True
   variants:
@@ -312,6 +319,7 @@
   variants:
     - function
   cpu_half: True
+  cpu_bfloat16: True
   cpu_bool: True
   cuda_bool: True
   device_guard: False
@@ -1777,6 +1785,7 @@
   cname: zero
   return: self
   cpu_half: True
+  cpu_bfloat16: True
   cpu_bool: True
   cuda_bool: True
   variants:
@@ -2780,6 +2789,7 @@
   name: _th_alias
   return: THTensor*
   cpu_half: True
+  cpu_bfloat16: True
   cpu_bool: True
   cuda_bool: True
   variants:
@@ -2806,6 +2816,7 @@
   cname: catArray
   variants: [function]
   cpu_half: True
+  cpu_bfloat16: True
   cpu_bool: True
   cuda_bool: True
   return: self

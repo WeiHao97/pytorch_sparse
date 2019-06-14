@@ -70,6 +70,11 @@ def process_types_and_backends(option):
         if 'CPU' in backend_types:
             backend_types['CPU'].discard('Half')
 
+    # special case remove BFloat16 for cpu unless it is explicitly enabled
+    if not option.get('cpu_bfloat16', False):
+        if 'CPU' in backend_types:
+            backend_types['CPU'].discard('BFloat16')
+
     # special cases remove bool for cpu and cuda unless it is explicitly enabled
     if not option.get('cpu_bool', False):
         if 'CPU' in backend_types:
