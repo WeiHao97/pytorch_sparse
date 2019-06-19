@@ -6011,16 +6011,6 @@ a")
         check((2, 10, 3))
         check((-2, -10, -10))
 
-    def test_script_for_zero_step(self):
-        @torch.jit.script
-        def fn():
-            x = 0
-            for i in range(2, -11, 0):
-                x += i
-            return x
-        with self.assertRaisesRegex(torch.jit.Error, "must not be zero"):
-            fn()
-
     def test_script_optional_none(self):
         def none_stmt(x):
             output = None
@@ -9906,13 +9896,146 @@ a")
                 return x
         self.checkScript(return_stmt, (torch.rand(1),))
 
+    def test_for_zero_step(self):
+        @torch.jit.script
+        def fn():
+            x = 0
+            for i in range(2, -11, 0):
+                x += i
+            return x
+        with self.assertRaisesRegex(torch.jit.Error, "must not be zero"):
+            fn()
+
     def test_for_range_no_arg(self):
-        with self.assertRaisesRegex(RuntimeError, r'range expected 1 arguments, got 0'):
+        with self.assertRaisesRegex(RuntimeError, r'range expected at least 1 arguments, got 0'):
             @torch.jit.script
             def range_no_arg(x):
                 for _ in range():
                     x += 1
                 return x
+
+    def test_for_in_enumerate(self):
+        def fn(x):
+            # type: (List[int]) -> int
+            sum = 0
+            for (i, v) in enumerate(x):
+                sum += i * v
+
+            return sum
+
+        self.checkScript(fn, ([1, 2, 3, 4, 5],))
+
+        def fn_enumerate_start_index(x):
+            # type: (List[int]) -> int
+            sum = 0
+            for (i, v) in enumerate(x, start=1):
+                sum += i * v
+
+            return sum
+
+        self.checkScript(fn, ([1, 2, 3, 4, 5],))
+
+        def fn_nested_enumerate(x):
+            # type: (List[int]) -> int
+            sum = 0
+            for (i, (j, v)) in enumerate(enumerate(x)):
+                sum += i * j * v
+
+            return sum
+
+        self.checkScript(fn, ([1, 2, 3, 4, 5],))
+
+        with self.assertRaisesRegex(RuntimeError, r'enumerate expected at least 1 arguments, got 0'):
+            @torch.jit.script
+            def enumerate_no_arg(x):
+                # type: (List[int]) -> int
+                sum = 0
+                for _ in enumerate():
+                    sum += 1
+
+                return sum
+
+        with self.assertRaisesRegex(RuntimeError, r'enumerate expected at most 2 arguments, got 3'):
+            @torch.jit.script
+            def enumerate_too_many_args(x):
+                # type: (List[int]) -> int
+                sum = 0
+                for _ in enumerate(x, x, x):
+                    sum += 1
+
+                return sum
+
+    def test_for_in_zip(self):
+        def fn(x, y):
+            # type: (List[int], List[int]) -> int
+            sum = 0
+            for (i, j) in zip(x, y):
+                sum += i * j
+
+            return sum
+
+        self.checkScript(fn, ([1, 2, 3, 4, 5], [2, 3, 4, 5, 6]))
+
+        def fn_multi_inputs(x, y, z):
+            # type: (List[int], List[int], List[int]) -> int
+            sum = 0
+            for (i, j, k) in zip(x, y, z):
+                sum += i * j * k
+
+            return sum
+
+        self.checkScript(fn_multi_inputs, ([1, 2, 3, 4], [2, 3, 4, 5], [3, 4, 5, 6]))
+
+        def fn_nested_zip(x, y, z):
+            # type: (List[int], List[int], List[int]) -> int
+            sum = 0
+            for (i, (j, k)) in zip(x, zip(y, z)):
+                sum += i * j * k 
+
+            return sum
+
+        self.checkScript(fn_multi_inputs, ([1, 2, 3, 4], [2, 3, 4, 5], [3, 4, 5, 6]))
+
+        with self.assertRaisesRegex(RuntimeError, r'zip expected at least 1 arguments, got 0'):
+            @torch.jit.script
+            def zip_no_arg(x):
+                # type: (List[int]) -> int
+                sum = 0
+                for _ in zip():
+                    sum += 1
+
+                return sum
+
+        with self.assertRaisesRegex(RuntimeError, r'too many values to unpack: need 2 but found 3'):
+            @torch.jit.script
+            def fn_nested_zip_wrong_target_assign(x, y, z):
+                # type: (List[int], List[int], List[int]) -> int
+                sum = 0
+                for (i, (j, k)) in zip(x, y, z):
+                    sum += i * j * k 
+
+                return sum
+
+    def test_for_in_zip_enumerate(self):
+        def fn_zip_enumerate(x, y):
+            # type: (List[int], List[int]) -> int
+            sum = 0
+            for (i, (j, v), k) in zip(x, enumerate(y), range(0, 100)):
+                sum += i * j * v * k
+
+            return sum
+
+        self.checkScript(fn_zip_enumerate, ([1, 2, 3, 4], [2, 3, 4, 5]))
+
+        def fn_enumerate_zip(x, y):
+            # type: (List[int], List[int]) -> int
+            sum = 0
+            for (i, (j, v)) in enumerate(zip(x, y)):
+                sum += i * j * v
+
+            return sum
+
+        self.checkScript(fn_enumerate_zip, ([1, 2, 3, 4], [2, 3, 4, 5]))
 
     def test_list_iterables(self):
         with self.assertRaisesRegex(RuntimeError, 'List of iterables is not supported currently'):
@@ -10088,7 +10211,7 @@ a")
             SomeModule()
 
     def test_single_starred_expr_for_loop(self):
-        with self.assertRaisesRegex(RuntimeError, 'expected ident but found'):
+        with self.assertRaisesRegex(RuntimeError, 'A Starred expression may only appear'):
             cu = torch.jit.CompilationUnit('''
             def test():
                 x = 0
