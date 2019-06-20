@@ -9059,6 +9059,7 @@ class _TestTorchMixin(object):
         double = torch.DoubleStorage().element_size()
         bool = torch.BoolStorage().element_size()
         bfloat16 = torch.BFloat16Storage().element_size()
+        print(bfloat16)
 
         self.assertEqual(byte, torch.ByteTensor().element_size())
         self.assertEqual(char, torch.CharTensor().element_size())

@@ -10,23 +10,23 @@
 namespace c10 {
 
 namespace detail {
-  inline C10_HOST_DEVICE float f32_from_bits(uint16_t src) {
-    float res = 0;
-    uint32_t tmp = src;
-    tmp <<= 16;
-    std::memcpy(&res, &tmp, sizeof(tmp));
+  inline C10_HOST_DEVICE float f32_from_bits(float src) {
+    float res = src;
+    //float tmp = src;
+    //tmp <<= 16;
+    //std::memcpy(&res, &tmp, sizeof(tmp));
     return res;
   }
 
-  inline C10_HOST_DEVICE uint16_t bits_from_f32(float src) {
-    uint32_t res;
-    std::memcpy(&res, &src, sizeof(res));
-    return res >>= 16;
+  inline C10_HOST_DEVICE float bits_from_f32(float src) {
+    float res = src;
+    //std::memcpy(&res, &src, sizeof(res));
+    return res;
   }
 } // namespace detail
 
-struct alignas(2) BFloat16 {
-  uint16_t val_;
+struct alignas(4) BFloat16 {
+  float val_;
 
   struct from_bits_t {};
   static constexpr from_bits_t from_bits() {
@@ -40,7 +40,7 @@ struct alignas(2) BFloat16 {
   BFloat16() = default;
 #endif
 
-  constexpr C10_HOST_DEVICE BFloat16(uint16_t bits, from_bits_t) : val_(bits){};
+  constexpr C10_HOST_DEVICE BFloat16(float bits, from_bits_t) : val_(bits){};
   inline C10_HOST_DEVICE BFloat16(float value);
   inline C10_HOST_DEVICE operator float() const;
 };

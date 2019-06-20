@@ -93,6 +93,18 @@ namespace c10 {
   _(double, Double, d)                        \
   _(at::BFloat16, BFloat16, d)
 
+#define AT_FORALL_SCALAR_TYPES_AND_BOOL_EXCEPT_QINT2(_) \
+  _(uint8_t, Byte, i)                                  \
+  _(int8_t, Char, i)                                   \
+  _(int16_t, Short, i)                                 \
+  _(int, Int, i)                                       \
+  _(int64_t, Long, i)                                  \
+  _(at::Half, Half, d)                                 \
+  _(float, Float, d)                                   \
+  _(double, Double, d)                                 \
+  _(bool, Bool, i)                                     \
+  _(at::BFloat16, BFloat16, d)
+
 #define AT_FORALL_SCALAR_TYPES_AND_BOOL_EXCEPT_QINT(_) \
   _(uint8_t, Byte, i)                                  \
   _(int8_t, Char, i)                                   \
@@ -270,6 +282,7 @@ static inline bool isUnderlying(ScalarType type, ScalarType qtype) {
 }
 
 static inline ScalarType promoteTypes(ScalarType a, ScalarType b) {
+  std::cout << "promote types" << std::endl;
   // This is generated according to NumPy's promote_types
   constexpr auto u1 = ScalarType::Byte;
   constexpr auto i1 = ScalarType::Char;
@@ -292,6 +305,10 @@ static inline ScalarType promoteTypes(ScalarType a, ScalarType b) {
   // For QInt types, we only allow exact match
   if (isQIntType(a) && a == b) {
     return a;
+  }
+
+  if (a == ScalarType::BFloat16 || b == ScalarType::BFloat16) {
+    AT_ERROR("VERY SAD");
   }
 
   if (isQIntType(a) || isQIntType(b)) {
@@ -318,7 +335,25 @@ static inline ScalarType promoteTypes(ScalarType a, ScalarType b) {
       /* c8 */ {ud, ud, ud, ud, ud, ud, ud, ud, ud, ud, ud, ud},
       /* b1 */ {u1, i1, i2, i4, i8, f2, f4, f8, ud, ud, ud, b1},
   };
-  return _promoteTypesLookup[static_cast<int>(a)][static_cast<int>(b)];
+  ScalarType res = _promoteTypesLookup[static_cast<int>(a)][static_cast<int>(b)];
+  if (res == ScalarType::Float) {
+    std::cout << "returning: Float" << std::endl;
+  }
+
+  if (res == ScalarType::Half) {
+    std::cout << "returning: Half" << std::endl;
+  }
+
+  if (res == ScalarType::BFloat16) {
+    std::cout << "returning: BFloat16" << std::endl;
+  }
+
+  if (res == ScalarType::Double) {
+    std::cout << "returning: Double" << std::endl;
+  } else {
+    std::cout << "returning: ELSE" << std::endl;
+  }
+  return res;
 }
 
 inline std::ostream& operator<<(

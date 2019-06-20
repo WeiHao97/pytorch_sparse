@@ -160,7 +160,7 @@ Tensor& empty_out(Tensor& result, IntArrayRef size) {
     return self.to(ScalarType::n, non_blocking);                 \
   }
 
-AT_FORALL_SCALAR_TYPES_AND_BOOL_EXCEPT_QINT(DEFINE_CAST_OP)
+AT_FORALL_SCALAR_TYPES_AND_BOOL_EXCEPT_QINT2(DEFINE_CAST_OP)
 
 #undef DEFINE_CAST_OP
 

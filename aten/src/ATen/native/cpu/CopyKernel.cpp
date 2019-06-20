@@ -6,6 +6,7 @@
 #include <ATen/native/cpu/Loops.h>
 
 #include <iostream>
+#include <inttypes.h>
 
 namespace at {
 namespace native {
@@ -21,16 +22,21 @@ void copy_kernel_cast(TensorIterator& iter) {
       "copy_kernel_cast",
       [&] {
         cpu_kernel(iter, [=](scalar_t a) -> self_T {
-          if (iter.dtype(1) == ScalarType::BFloat16) {
-            return (self_T)a;
-          }
+/*
+        if (std::is_same<typeof(a), BFloat16>::value) {
+          std::cout << "\nBFLOAT" << std::endl;
+          std::bitset<16> y(((BFloat16)a).val_);
+          std::cout << y << '\n';
+          printf("%" PRIu16 "\n", ((BFloat16)a).val_);
+        }
+*/
+
           //std::cout << "self " << typeid(self_T).name() << std::endl;
           //std::cout << "scal " << typeid(scalar_t).name() << std::endl;
-          //std::cout << "a: " << (float)a << std::endl;
-          self_T res = static_cast<self_T>(
+          //std::cout << " ??: " << typeid(at::native::inter_copy_type_t<self_T>).name() << std::endl;
+          return static_cast<self_T>(
               static_cast<at::native::inter_copy_type_t<self_T>>(a));
-          //std::cout << "res: " << (float)res << std::endl;
-          return res;
+          //std::cout << "res: " << res << std::endl;
         });
       });
 }
