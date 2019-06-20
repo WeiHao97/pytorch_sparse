@@ -35,6 +35,7 @@ static void mean_kernel_impl(TensorIterator& iter) {
 }
 
 static void std_var_kernel_impl(TensorIterator &iter, bool unbiased, bool take_sqrt) {
+  std::cout << "HALF GOES HERE" << std::endl;
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(iter.dtype(), "std_cpu", [&] {
     binary_kernel_reduce(
       iter,

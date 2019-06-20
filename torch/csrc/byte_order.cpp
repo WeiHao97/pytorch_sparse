@@ -1,6 +1,7 @@
 #include <torch/csrc/byte_order.h>
 #include <c10/util/BFloat16.h>
 #include <cstring>
+#include <iostream>
 
 #if defined(_MSC_VER)
 #include <stdlib.h>
@@ -142,9 +143,12 @@ void THP_decodeHalfBuffer(THHalf* dst, const uint8_t* src, THPByteOrder order, s
 
 void THP_decodeBFloat16Buffer(at::BFloat16* dst, const uint8_t* src, THPByteOrder order, size_t len)
 {
+  std::cout << "byte order" << std::endl;
   for (size_t i = 0; i < len; i++) {
-    uint16_t x = (order == THP_BIG_ENDIAN ? decodeUInt16BE(src) : decodeUInt16LE(src));
-    std::memcpy(&dst[i], &x, sizeof(dst[i]));
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
+    union { uint16_t x; at::BFloat16 f; };
+    x = (order == THP_BIG_ENDIAN ? decodeUInt16BE(src) : decodeUInt16LE(src));
+    dst[i] = f;
     src += sizeof(uint16_t);
   }
 }

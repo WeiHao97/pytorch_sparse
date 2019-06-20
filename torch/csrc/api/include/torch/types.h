@@ -24,6 +24,7 @@ constexpr auto kInt64 = at::kLong;
 constexpr auto kFloat16 = at::kHalf;
 constexpr auto kFloat32 = at::kFloat;
 constexpr auto kFloat64 = at::kDouble;
+constexpr auto kBFloat16 = at::kBFloat16;
 
 /// Rust-style short dtypes.
 constexpr auto kU8 = kUInt8;

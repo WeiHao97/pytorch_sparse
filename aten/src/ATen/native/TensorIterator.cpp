@@ -109,6 +109,7 @@ std::tuple<Device, ScalarType> TensorIterator::compute_common_type() {
 }
 
 void TensorIterator::compute_types() {
+  std::cout << "TensorIterator::compute_types" << std::endl;
   bool missing_dtypes = false;
   for (auto& op : operands_) {
     if (!op.tensor.defined() && !op.is_type_defined()) {

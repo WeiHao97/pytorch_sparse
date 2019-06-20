@@ -1,5 +1,6 @@
 #pragma once
 
+#include <iostream>
 /// Defines the Half type (half-precision floating-point) including conversions
 /// to standard C types and basic arithmetic operations. Note that arithmetic
 /// operations are implemented by converting to floating point and
@@ -341,8 +342,8 @@ struct alignas(2) Half {
   inline C10_HOST_DEVICE operator float() const;
 
 #if defined(__CUDACC__) || defined(__HIPCC__)
-  inline C10_HOST_DEVICE Half(const __half& value);
-  inline C10_HOST_DEVICE operator __half() const;
+  //inline C10_HOST_DEVICE Half(const __half& value);
+  //inline C10_HOST_DEVICE operator __half() const;
 #endif
 };
 
@@ -353,9 +354,11 @@ struct alignas(4) ComplexHalf {
   Half imag_;
   ComplexHalf() = default;
   Half real() const {
+    std::cout << "ComplexHalf1" << std::endl;
     return real_;
   }
   Half imag() const {
+    std::cout << "ComplexHalf2" << std::endl;
     return imag_;
   }
   inline ComplexHalf(std::complex<float> value)
@@ -397,12 +400,14 @@ struct scalar_value_type<ComplexHalf> {
 template <typename To, typename From, typename Enable = void>
 struct Converter {
   To operator()(From f) {
+    std::cout << "Converter3" << std::endl;
     return static_cast<To>(f);
   }
 };
 
 template <typename To, typename From>
 To convert(From from) {
+  std::cout << "Converter2" << std::endl;
   return Converter<To, From>()(from);
 }
 
@@ -413,6 +418,7 @@ struct Converter<
     typename std::enable_if<
         c10::guts::negation<is_complex_t<To>>::value>::type> {
   To operator()(std::complex<FromV> f) {
+    std::cout << "Converter1" << std::endl;
     return static_cast<To>(f.real());
   }
 };
@@ -431,6 +437,7 @@ struct Converter<
 template <typename To, typename From>
 typename std::enable_if<std::is_integral<From>::value, bool>::type overflows(
     From f) {
+  std::cout << "std::enable_if<std::is_integral<From>::value, bool>" << std::endl;
   using limit = std::numeric_limits<typename scalar_value_type<To>::type>;
   if (!limit::is_signed && std::numeric_limits<From>::is_signed) {
     // allow for negative numbers to wrap using two's complement arithmetic.
@@ -446,6 +453,7 @@ typename std::enable_if<std::is_integral<From>::value, bool>::type overflows(
 template <typename To, typename From>
 typename std::enable_if<std::is_floating_point<From>::value, bool>::type
 overflows(From f) {
+  std::cout << "std::enable_if<std::is_floating_point<From>" << std::endl;
   using limit = std::numeric_limits<typename scalar_value_type<To>::type>;
   if (limit::has_infinity && std::isinf(static_cast<double>(f))) {
     return false;
@@ -463,6 +471,7 @@ overflows(From f) {
 template <typename To, typename From>
 typename std::enable_if<is_complex_t<From>::value, bool>::type overflows(
     From f) {
+  std::cout << "std::enable_if" << std::endl;
   // casts from complex to real are considered to overflow if the
   // imaginary component is non-zero
   if (!is_complex_t<To>::value && f.imag() != 0) {
@@ -482,6 +491,7 @@ typename std::enable_if<is_complex_t<From>::value, bool>::type overflows(
 
 template <typename To, typename From>
 To checked_convert(From f, const char* name) {
+  std::cout << "checked_convert" << std::endl;
   // Converting to bool can't overflow so we exclude this case from checking.
   if (!std::is_same<To, bool>::value && overflows<To, From>(f)) {
     std::ostringstream oss;
