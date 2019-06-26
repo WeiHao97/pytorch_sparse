@@ -1,9 +1,9 @@
 #include <torch/csrc/jit/passes/dead_code_elimination.h>
 
 #include <torch/csrc/jit/ir_views.h>
+#include <torch/csrc/jit/jit_log.h>
 #include <torch/csrc/jit/passes/alias_analysis.h>
 #include <torch/csrc/utils/memory.h>
-
 #include <unordered_map>
 
 namespace torch {
@@ -294,6 +294,7 @@ class DeadCodeEliminator {
 
 void EliminateDeadCode(const std::shared_ptr<Graph>& graph) {
   DeadCodeEliminator(graph).run(graph->block(), /*recurse=*/true);
+  JIT_GRAPH_DUMP("After EliminateDeadCode:\n", graph->toString());
 }
 
 void EliminateDeadCode(Block* block, bool recurse) {

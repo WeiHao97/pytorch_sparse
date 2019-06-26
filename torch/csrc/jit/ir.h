@@ -1324,5 +1324,6 @@ TORCH_API std::vector<Value*> inlineCallTo(
     Graph& callee,
     ArrayRef<Value*> inputs,
     bool unpack_outputs = false);
+
 } // namespace jit
 } // namespace torch
