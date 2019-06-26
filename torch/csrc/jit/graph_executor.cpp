@@ -2,8 +2,6 @@
 
 #include <ATen/core/ivalue.h>
 #include <c10/util/Exception.h>
-#include <torch/csrc/autograd/edge.h>
-#include <torch/csrc/autograd/function.h>
 #include <torch/csrc/autograd/grad_mode.h>
 #include <torch/csrc/jit/argument_spec.h>
 #include <torch/csrc/jit/autodiff.h>
@@ -33,8 +31,11 @@
 #include <torch/csrc/jit/profiling_graph_executor_impl.h>
 #include <torch/csrc/jit/profiling_record.h>
 #include <torch/csrc/jit/resource_guard.h>
-#include <torch/csrc/jit/script/logging.h>
 #include <torch/csrc/jit/tracer.h>
+
+#include <torch/csrc/autograd/edge.h>
+#include <torch/csrc/autograd/function.h>
+#include <torch/csrc/jit/script/logging.h>
 
 #include <cstdint>
 #include <iterator>
