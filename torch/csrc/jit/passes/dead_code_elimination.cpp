@@ -294,7 +294,7 @@ class DeadCodeEliminator {
 
 void EliminateDeadCode(const std::shared_ptr<Graph>& graph) {
   DeadCodeEliminator(graph).run(graph->block(), /*recurse=*/true);
-  JIT_GRAPH_DUMP("After EliminateDeadCode:\n", graph->toString());
+  JIT_GRAPH_DUMP("After EliminateDeadCode:", graph);
 }
 
 void EliminateDeadCode(Block* block, bool recurse) {

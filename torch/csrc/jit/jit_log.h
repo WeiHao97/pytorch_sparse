@@ -26,7 +26,8 @@ std::string add_jit_log_prefix(
   }
 
 // print graph after every pass
-#define JIT_GRAPH_DUMP(...) JIT_LOG(JitLoggingLevels::GRAPH_DUMP, __VA_ARGS__);
+#define JIT_GRAPH_DUMP(MSG, G) \
+  JIT_LOG(JitLoggingLevels::GRAPH_DUMP, MSG, "\n", (G)->toString());
 // report evey graph transformation
 #define JIT_INFO(...) JIT_LOG(JitLoggingLevels::INFO, __VA_ARGS__);
 // details needed to debug a particular pass
