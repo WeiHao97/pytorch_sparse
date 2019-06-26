@@ -27,6 +27,12 @@ static std::string level_and_tid(JitLoggingLevels level) {
 std::string add_jit_log_prefix(
     JitLoggingLevels level,
     const std::string& in_str) {
+  static const char* enable_suffix =
+      std::getenv("PYTORCH_JIT_LOG_ENABLE_PREFIX");
+  if (!enable_suffix) {
+    return in_str;
+  }
+
   std::stringstream in_ss(in_str);
   std::stringstream out_ss(in_str);
   std::string line;
