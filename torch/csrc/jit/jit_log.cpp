@@ -78,6 +78,7 @@ std::ostream& operator<<(std::ostream& out, JitLoggingLevels level) {
   switch (level) {
     case JitLoggingLevels::OFF:
       TORCH_INTERNAL_ASSERT("UNREACHABLE");
+      break;
     case JitLoggingLevels::GRAPH_DUMP:
       out << "JIT_GRAPH_DUMP";
       break;
