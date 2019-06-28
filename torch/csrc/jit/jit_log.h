@@ -20,8 +20,11 @@ std::string add_jit_log_prefix(
     JitLoggingLevels level,
     const std::string& in_str);
 
+bool apply_file_regex(const char* filename);
+
 #define JIT_LOG(level, ...)                                                   \
-  if (jit_log_level() != JitLoggingLevels::OFF && jit_log_level() >= level) { \
+  if (jit_log_level() != JitLoggingLevels::OFF && jit_log_level() >= level && \
+      apply_file_regex(__FILE__)) {                                           \
     std::cerr << add_jit_log_prefix(level, ::c10::str(__VA_ARGS__));          \
   }
 
