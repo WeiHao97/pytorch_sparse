@@ -1,5 +1,8 @@
 #pragma once
 
+#include "ATen/Parallel.h"
+#include "ATen/ThreadLocalDebugInfo.h"
+
 #include "test/cpp/jit/test_base.h"
 #include "test/cpp/jit/test_utils.h"
 
@@ -767,6 +770,40 @@ void testRecordFunction() {
 
   autograd::profiler::popCallback();
   autograd::profiler::popCallback();
+}
+
+class TestThreadLocalDebugInfo
+  : public at::ThreadLocalDebugInfoBase {
+ public:
+  virtual std::string getString(const char*) override {
+    return "42";
+  }
+
+  virtual int getInt(const char*) override {
+    return 42;
+  }
+};
+
+void testThreadLocalDebugInfo() {
+  auto checkDebugInfo = [](){
+    TORCH_CHECK(at::getThreadLocalDebugInfo() != nullptr);
+    TORCH_CHECK(
+        at::getThreadLocalDebugInfo()->getString("") == "42");
+    TORCH_CHECK(at::getThreadLocalDebugInfo()->getInt("") == 42);
+  };
+  TORCH_CHECK(at::getThreadLocalDebugInfo() == nullptr);
+  at::setThreadLocalDebugInfo(
+      std::make_shared<TestThreadLocalDebugInfo>());
+  checkDebugInfo();
+  std::atomic<bool> done {false};
+  at::launch([checkDebugInfo, &done](){
+    checkDebugInfo();
+    done = true;
+  });
+  while (!done) {}
+  checkDebugInfo();
+  at::setThreadLocalDebugInfo(nullptr);
+  TORCH_CHECK(at::getThreadLocalDebugInfo() == nullptr);
 }
 
 void testAutogradProfiler() {
