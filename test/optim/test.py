@@ -23,6 +23,7 @@ algorithms = {
     'rmsprop': optim.rmsprop,
     'rprop': optim.rprop,
     'sgd': optim.sgd,
+    'sgdw': optim.sgdw,
     'lbfgs': optim.lbfgs,
 }
 
