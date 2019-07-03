@@ -37,13 +37,13 @@ std::ostream& operator<<(std::ostream& out, JitLoggingLevels level) {
       TORCH_INTERNAL_ASSERT("UNREACHABLE");
       break;
     case JitLoggingLevels::GRAPH_DUMP:
-      out << "JIT_GRAPH_DUMP";
+      out << "DUMP";
       break;
-    case JitLoggingLevels::INFO:
-      out << "JIT_INFO";
+    case JitLoggingLevels::GRAPH_UPDATE:
+      out << "UPDATE";
       break;
-    case JitLoggingLevels::DEBUG:
-      out << "JIT_DEBUG";
+    case JitLoggingLevels::GRAPH_DEBUG:
+      out << "DEBUG";
       break;
     default:
       TORCH_INTERNAL_ASSERT("Invalid level");

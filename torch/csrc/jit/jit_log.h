@@ -1,10 +1,13 @@
 #pragma once
 #include <string>
-
 // To enable logging please set(export) PYTORCH_JIT_LOG_LEVEL to
-// one of the following logging levels: JIT_GRAPH_DUMP,
-// JIT_INFO, JIT_DEBUG.
-// The descriptions of the logging levels are below
+// the ordinal value of one of the following logging levels: 1 for GRAPH_DUMP,
+// 2 for GRAPH_UPDATE, 3 for GRAPH_DEBUG.
+// * Use GRAPH_DUMP for dumping graphs after optimization passes
+// * Use GRAPH_UPDATE for reporting graph transformations (i.e. node deletion,
+//   constant folding, CSE)
+// * Use GRAPH_DEBUG to provide information useful for debugging
+//   the internals of a particular optimization pass or analysis
 
 namespace torch {
 namespace jit {
@@ -12,8 +15,8 @@ namespace jit {
 enum class JitLoggingLevels {
   OFF,
   GRAPH_DUMP,
-  INFO,
-  DEBUG,
+  GRAPH_UPDATE,
+  GRAPH_DEBUG,
 };
 
 JitLoggingLevels jit_log_level();
@@ -27,15 +30,14 @@ std::ostream& operator<<(std::ostream& out, JitLoggingLevels level);
     std::cerr << jit_log_prefix(level, ::c10::str(__VA_ARGS__));              \
   }
 
-// use JIT_GRAPH_DUMP for dumping graphs after optimization passes
-#define JIT_GRAPH_DUMP(MSG, G) \
+// use GRAPH_DUMP for dumping graphs after optimization passes
+#define GRAPH_DUMP(MSG, G) \
   JIT_LOG(JitLoggingLevels::GRAPH_DUMP, MSG, "\n", (G)->toString());
-// use JIT_INFO for reporting graph transformations (i.e. node deletion,
+// use GRAPH_UPDATE for reporting graph transformations (i.e. node deletion,
 // constant folding, CSE)
-#define JIT_INFO(...) JIT_LOG(JitLoggingLevels::INFO, __VA_ARGS__);
-// use JIT_DEBUG to provide information useful for debugging a particular opt
+#define GRAPH_UPDATE(...) JIT_LOG(JitLoggingLevels::GRAPH_UPDATE, __VA_ARGS__);
+// use GRAPH_DEBUG to provide information useful for debugging a particular opt
 // pass
-#define JIT_DEBUG(...) JIT_LOG(JitLoggingLevels::DEBUG, __VA_ARGS__);
-
+#define GRAPH_DEBUG(...) JIT_LOG(JitLoggingLevels::GRAPH_DEBUG, __VA_ARGS__);
 } // namespace jit
 } // namespace torch
