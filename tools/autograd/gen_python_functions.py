@@ -35,6 +35,7 @@ SKIP_PYTHON_BINDINGS = [
     'nonzero(_(out|numpy))?',
     'set_quantizer_',
     'set_data',
+    's_native_addmm_'
 ]
 
 # These function signatures are not exposed to Python. Note that this signature
@@ -49,6 +50,7 @@ SKIP_PYTHON_BINDINGS_SIGNATURES = [
 PY_VARIABLE_METHOD_VARARGS = CodeTemplate("""\
 static PyObject * ${pycname}(PyObject* self_, PyObject* args, PyObject* kwargs)
 {
+  ${deprecation_message}
   HANDLE_TH_ERRORS
   static PythonArgParser parser({
     ${signatures}
@@ -66,6 +68,7 @@ static PyObject * ${pycname}(PyObject* self_, PyObject* args, PyObject* kwargs)
 PY_VARIABLE_METHOD_NOARGS = CodeTemplate("""\
 static PyObject * ${pycname}(PyObject* self_, PyObject* args)
 {
+  ${deprecation_message}
   HANDLE_TH_ERRORS
   ${declare_namedtuple_return_types}
   ${unpack_self}
@@ -164,6 +167,20 @@ const auto options = TensorOptions()
     .requires_grad(${requires_grad})
     .pinned_memory(${pin_memory});
 """)
+
+INPLACE_DEPRECATION_MESSAGE = ('TORCH_WARN("In-place functions such as torch.{name} are deprecated '
+                               'and will be removed in the next release. '
+                               'Please use their in-place method counterparts (Tensor.{name}) instead.");')
+
+# These functions should not exist because they are in-place. We now deprecate them before removing them.
+DEPRECATED_INPLACE_FUNCTIONS = ('abs_', 'acos_', 'addmv_', 'as_strided_', 'asin_', 'atan_', 'ceil_', 'celu_',
+                                'clamp_', 'clamp_max_', 'clamp_min_', 'cos_', 'cosh_', 'detach_',
+                                'embedding_renorm_', 'erf_', 'erfc_', 'exp_', 'expm1_', 'fill_', 'floor_', 'frac_',
+                                'index_put_', 'log10_', 'log1p_', 'log2_', 'log_', 'neg_', 'reciprocal_', 'relu_',
+                                'resize_as_', 'round_', 'rrelu_', 'rsqrt_', 'selu_', 'sigmoid_', 'sin_', 'sinh_',
+                                'sqrt_', 'tan_', 'tanh_', 'threshold_', 'trunc_', 'zero_')
+# These in-place functions should be in the nn module. We exempt them from deprecation for now.
+EXEMPTED_INPLACE_FUNCTIONS = ('dropout_', 'feature_dropout_', 'alpha_dropout_', 'feature_alpha_dropout_')
 
 def should_generate_python_binding(declaration):
     name = declaration['name']
@@ -691,6 +708,7 @@ def create_python_bindings(python_functions, has_self, is_module=False):
             'unpack_self': [],
             'dispatch': [],
             'declare_namedtuple_return_types': '',
+            'deprecation_message': '',
         }
 
         if has_self:
@@ -701,6 +719,16 @@ def create_python_bindings(python_functions, has_self, is_module=False):
         for declaration in declarations:
             typedef, next_index = emit_namedtuple_return_type_def(declaration, next_index)
             env['declare_namedtuple_return_types'] += typedef
+
+        # In-place operator, should be method only. Deprecate it.
+        if not is_module and not has_self and name.endswith('_') and not name.startswith('_'):
+            # After the deprecated functions are removed, remove DEPRECATED_INPLACE_FUNCTIONS in this block to ensure
+            # that future in-place operators won't be exposed as functions.
+            if name not in DEPRECATED_INPLACE_FUNCTIONS + EXEMPTED_INPLACE_FUNCTIONS:
+                # Neither deprecated nor exempted inplace function.
+                raise AssertionError('In-place operator {} must not have a function variant.'.format(name))
+            if name in DEPRECATED_INPLACE_FUNCTIONS:
+                env['deprecation_message'] = INPLACE_DEPRECATION_MESSAGE.format(name=name)
 
         # emit dispatch
         grouped = group_declarations(declarations)
