@@ -71,7 +71,7 @@ void THTensor_(nonzero)(THLongTensor *subscript, THTensor *tensor)
 #undef IS_NONZERO
 }
 
-#if !defined(TH_REAL_IS_HALF) && !defined(TH_REAL_IS_BFLOAT16) /* non half and bfloat16 part */
+#if !defined(TH_REAL_IS_HALF) /* non half and bfloat16 part */
 
 accreal THTensor_(sumall)(THTensor *tensor)
 {

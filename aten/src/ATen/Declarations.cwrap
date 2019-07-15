@@ -2017,6 +2017,7 @@
 ]]
 [[
   name: _th_addmm
+  cpu_bfloat16: True
   cname: addmm
   variants:
     - function
@@ -2039,6 +2040,7 @@
 ]]
 [[
   name: _th_addmm_
+  cpu_bfloat16: True
   variants: [function]
   return: self
   options:

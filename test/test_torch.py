@@ -347,6 +347,7 @@ class _TestTorchMixin(object):
         types = {
             'torch.DoubleTensor': 1e-8,
             'torch.FloatTensor': 1e-4,
+            'torch.BFloat16Tensor': 1e-4,
         }
         for tname, _prec in types.items():
             M = torch.randn(10, 25).type(tname)
