@@ -2059,6 +2059,7 @@
 ]]
 [[
   name: _th_addmv
+  cpu_bfloat16: True
   cname: addmv
   variants: function
   return: argument 0
@@ -2078,6 +2079,7 @@
 ]]
 [[
   name: _th_addmv_
+  cpu_bfloat16: True
   cname: addmv
   variants: function
   return: self
@@ -2095,6 +2097,7 @@
 ]]
 [[
   name: _th_addr
+  cpu_bfloat16: True
   cname: addr
   variants: function
   return: argument 0
@@ -2115,6 +2118,7 @@
 ]]
 [[
   name: _th_addr_
+  cpu_bfloat16: True
   cname: addr
   return: self
   variants: function

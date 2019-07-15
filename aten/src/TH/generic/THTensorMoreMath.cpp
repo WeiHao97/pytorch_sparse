@@ -349,6 +349,8 @@ void THTensor_(baddbmm)(THTensor *result, scalar_t beta, THTensor *t, scalar_t a
   c10::raw::intrusive_ptr::decref(result_matrix);
 }
 
+#if !defined(TH_REAL_IS_BFLOAT16)
+
 void THTensor_(prod)(THTensor *r_, THTensor *t, int dimension, int keepdim)
 {
   THArgCheck(dimension >= 0 && dimension < THTensor_(nDimensionLegacyAll)(t), 2, "dimension %d out of range",
@@ -1488,5 +1490,7 @@ void THTensor_(bhistc)(THTensor *hist, THTensor *tensor, int64_t nbins, scalar_t
 #undef IS_NONZERO
 
 #endif /* !defined(TH_REAL_IS_BOOL) */
+
+#endif
 
 #endif /* TH_GENERIC_FILE */
