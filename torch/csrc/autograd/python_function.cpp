@@ -222,7 +222,7 @@ auto PyFunction::name() const -> std::string {
   AutoGIL gil;
   auto f = (THPFunction*) obj;
   auto name = std::string(Py_TYPE(f)->tp_name);
-  THPObjectPtr _legacy(PyObject_GetAttrString(obj, "_is_legacy"));
+  THPObjectPtr _legacy(PyObject_GetAttrString((PyObject*)obj, "_is_legacy"));  // CONST?!
   if (_legacy == Py_True) {
     name += "LegacyBackward";
   }
@@ -238,14 +238,19 @@ auto PyFunction::get_shared_ptr() -> std::shared_ptr<Function> {
 // Traverse and clear are required for supporting Python's GC cycle handling.
 static int THPFunction_traverse(THPFunction *self, visitproc visit, void *arg)
 {
-  for (const auto& hook : self->cdata.pre_hooks()) {
-    if (auto pyhook = dynamic_cast<PyFunctionPreHook*>(hook.get())) {
-      Py_VISIT(pyhook->dict);
+  auto cdata = self->cdata.lock();
+  // cdata could be null if someone constructed a legacy function but haven't
+  // actually called backward() on it yet.
+  if (cdata) {
+    for (const auto& hook : cdata->pre_hooks()) {
+      if (auto pyhook = dynamic_cast<PyFunctionPreHook*>(hook.get())) {
+        Py_VISIT(pyhook->dict);
+      }
     }
-  }
-  for (const auto& hook : self->cdata.post_hooks()) {
-    if (auto pyhook = dynamic_cast<PyFunctionPostHook*>(hook.get())) {
-      Py_VISIT(pyhook->dict);
+    for (const auto& hook : cdata->post_hooks()) {
+      if (auto pyhook = dynamic_cast<PyFunctionPostHook*>(hook.get())) {
+        Py_VISIT(pyhook->dict);
+      }
     }
   }
   Py_VISIT(self->to_save);
@@ -256,7 +261,11 @@ static int THPFunction_traverse(THPFunction *self, visitproc visit, void *arg)
 
 static int THPFunction_clear(THPFunction *self)
 {
-  self->cdata.clear_input_metadata();
+  // Why is this guaranteed to be true?  Suppose that self->cdata is non-null
+  // (otherwise the condition is trivially true).  Then there is a PyFunction
+  // which contains an owning reference to this object.  But we are only
+  // allowed to clear if all owning references are gone!  Contradiction.
+  TORCH_INTERNAL_ASSERT(!self->cdata.lock());
 
   Py_CLEAR(self->needs_input_grad);
 
@@ -269,14 +278,6 @@ static int THPFunction_clear(THPFunction *self)
   self->saved_variables.clear();
   self->is_variable_input.clear();
 
-  // Moving the hooks out makes sure to first disassociate them from the
-  // function, but without destroying any of them. They will get deleted when
-  // exiting this scope. This is important, because deleting Python objects can
-  // trigger deletion of other objects, and they can reference this function,
-  // seeing it in a half-deleted state.
-  auto pre_hooks = std::move(self->cdata.pre_hooks());
-  auto post_hooks = std::move(self->cdata.post_hooks());
-
   return 0;
 }
 
@@ -284,7 +285,7 @@ static void THPFunction_dealloc(THPFunction* self)
 {
   PyObject_GC_UnTrack(self);
   THPFunction_clear(self);
-  self->cdata.~PyFunction();
+  self->cdata.~weak_ptr<PyFunction>();
   self->output_info.~vector();
   self->input_info.~vector();
   self->saved_variables.~vector();
@@ -299,7 +300,8 @@ PyObject *THPFunction_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
   // Python zero-initializes the object memory, so there's no need to initialize
   // most fields
   THPFunction* self = (THPFunction*)obj;
-  new (&self->cdata) PyFunction(obj);
+  // Setup the PyFunction later; we can't keep it live here
+  new (&self->cdata) std::weak_ptr<PyFunction>();
   new (&self->output_info) std::vector<VariableInfo>();
   new (&self->input_info) std::vector<VariableInfo>();
   new (&self->saved_variables) std::vector<SavedVariable>();
@@ -411,7 +413,8 @@ static void _save_variables(THPFunction* self)
   Py_ssize_t num_saved = PyTuple_GET_SIZE(self->to_save);
   self->saved_variables.clear();
   self->saved_variables.reserve(num_saved);
-  auto cdata_ptr = &self->cdata;
+  auto cdata_ptr = self->cdata.lock();
+  TORCH_INTERNAL_ASSERT(cdata_ptr);
   for (int i = 0; i < num_saved; i++) {
     PyObject *obj = PyTuple_GET_ITEM(self->to_save, i);
     if (obj == Py_None) {
@@ -419,7 +422,7 @@ static void _save_variables(THPFunction* self)
       continue;
     } else if (THPVariable_Check(obj)) {
       auto variable = (THPVariable*)obj;
-      bool is_output = variable->cdata.grad_fn().get() == cdata_ptr;
+      bool is_output = variable->cdata.grad_fn().get() == cdata_ptr.get();
       self->saved_variables.emplace_back(variable->cdata, is_output);
     } else {
       throw TypeError(
@@ -588,7 +591,9 @@ PyObject* process_outputs(PyObject *op_obj, THPFunction* grad_fn, const Unpacked
   THPObjectPtr outputs(PyTuple_New(num_outputs));
   if (!outputs) throw python_error();
 
-  grad_fn->cdata.clear_input_metadata();
+  auto cdata = grad_fn->cdata.lock();
+  TORCH_INTERNAL_ASSERT(cdata);
+  cdata->clear_input_metadata();
 
   // Record type, device, and size information about inputs
   if (is_executable) {
@@ -635,7 +640,36 @@ PyObject *THPFunction_do_forward(THPFunction *self, PyObject *_inputs)
   auto& unpacked_input = info_pair.first;
   auto& input_info = info_pair.second;
   bool is_executable = input_info.is_executable;
-  self->cdata.set_next_edges(std::move(input_info.next_edges));
+  Py_INCREF(self);
+  // Needs to be an owning reference to keep it live until the end
+  // of this function, since THPFunction won't keep it live (eventually,
+  // we'll take out an owning reference when we process_outputs).
+  std::shared_ptr<PyFunction> cdata;
+  if (cdata = self->cdata.lock()) {
+    // In some pathological cases, self->cdata can already be set on entry to
+    // this function.  This occurs on misuse of the legacy autograd API in the
+    // following way:
+    //
+    //    f = MyFunction()
+    //    y1 = f(x1)
+    //    y2 = f(x2)  # bad!!
+    //
+    // Historically, we did something very nutty: we set y1.grad_fn ==
+    // y2.grad_fn (even though these variables really have nothing to do with
+    // each other.)  At least now we have a warning.  All of this hoo-ha will
+    // go away when we delete the implementation of legacy autograd.
+    TORCH_WARN(
+      "Legacy autograd function object was called twice.  You will probably "
+      "get incorrect gradients from this computation, as the saved tensors "
+      "from the second invocation will clobber the saved tensors from the "
+      "first invocation.  Please consider rewriting your autograd function "
+      "in the modern style; for information on the new format, please see: "
+      "https://pytorch.org/docs/stable/notes/extending.html#extending-torch-autograd");
+  } else {
+    cdata = std::shared_ptr<PyFunction>(new PyFunction(THPObjectPtr((PyObject*)self)), deleteFunction);
+    self->cdata = cdata;
+  }
+  cdata->set_next_edges(std::move(input_info.next_edges));
   self->needs_input_grad = input_info.needs_input_grad.release();
 
   // We don't support tracing in the legacy code path
@@ -670,6 +704,9 @@ PyObject *THPFunction_apply(PyObject *cls, PyObject *inputs)
   if (!ctx_obj) return nullptr;
   THPFunction* ctx = (THPFunction*)ctx_obj.get();
 
+  auto cdata = std::shared_ptr<PyFunction>(new PyFunction(std::move(ctx_obj)), deleteFunction);
+  ctx->cdata = cdata;
+
   // Prepare inputs and allocate context (grad fn)
   auto info_pair = unpack_input<false>(inputs);
   UnpackedInput& unpacked_input = info_pair.first;
@@ -680,14 +717,15 @@ PyObject *THPFunction_apply(PyObject *cls, PyObject *inputs)
 
   // Initialize backward function (and ctx)
   bool is_executable = input_info.is_executable;
-  ctx->cdata.set_next_edges(std::move(input_info.next_edges));
+  cdata->set_next_edges(std::move(input_info.next_edges));
   ctx->needs_input_grad = input_info.needs_input_grad.release();
   ctx->is_variable_input = std::move(input_info.is_variable_input);
 
   // Prepend ctx to input_tuple, in preparation for static method call
   auto num_args = PyTuple_GET_SIZE(inputs);
   THPObjectPtr ctx_input_tuple(PyTuple_New(num_args + 1));
-  PyTuple_SET_ITEM(ctx_input_tuple.get(), 0, ctx_obj.release());
+  Py_INCREF(ctx);
+  PyTuple_SET_ITEM(ctx_input_tuple.get(), 0, (PyObject*)ctx);
   for (int i = 0; i < num_args; ++i) {
     PyObject *arg = PyTuple_GET_ITEM(unpacked_input.input_tuple.get(), i);
     Py_INCREF(arg);
@@ -749,7 +787,9 @@ static void _prepare_grads(THPFunction *self, THPObjectPtr& raw_grads, bool is_g
 static void _trim_grad_input(THPFunction *self, THPObjectPtr& grad_input)
 {
   int num_grads = PyTuple_GET_SIZE(grad_input.get());
-  const int num_outputs = self->cdata.num_outputs();
+  auto cdata = self->cdata.lock();
+  TORCH_INTERNAL_ASSERT(cdata);
+  const int num_outputs = cdata->num_outputs();
   if (num_grads > num_outputs) {
     // Check that all extra grads are none
     bool all_none = true;
@@ -777,9 +817,11 @@ PyObject * THPFunction_do_backward(THPFunction *self, PyObject *args)
       THPUtils_invalidArguments(args, nullptr, "_do_backward", 1, "(tuple, bool)");
       return nullptr;
     }
-    THPUtils_assert(PyTuple_GET_SIZE(raw_grad_output) == self->cdata.num_inputs(),
+    auto cdata = self->cdata.lock();
+    TORCH_INTERNAL_ASSERT(cdata);
+    THPUtils_assert(PyTuple_GET_SIZE(raw_grad_output) == cdata->num_inputs(),
                     "%s got an invalid number of gradients (expected %d got %d)",
-                    THPUtils_typename(self), self->cdata.num_inputs(),
+                    THPUtils_typename(self), cdata->num_inputs(),
                     PyTuple_GET_SIZE(raw_grad_output));
 
     // Some of the output might have been unused, so we have to allocate
@@ -800,7 +842,7 @@ PyObject * THPFunction_do_backward(THPFunction *self, PyObject *args)
     // if and only if the additional ones are all None
     _trim_grad_input(self, grad_input);
     int num_grads = PyTuple_GET_SIZE(grad_input.get());
-    int num_outputs = self->cdata.num_outputs();
+    int num_outputs = cdata->num_outputs();
     THPUtils_assert(num_grads == num_outputs, "%s returned an invalid number of "
         "gradient tensors (expected %d, but got %d)", THPUtils_typename(self),
         num_outputs, num_grads);
@@ -827,13 +869,17 @@ PyObject* THPFunction__register_hook_dict(THPFunction *self, PyObject *_var)
   THPVariable *var = (THPVariable*)_var;
   std::unique_ptr<FunctionPreHook> hook(new PyFunctionPreHook(
       var->backward_hooks, var->cdata.output_nr()));
-  self->cdata.add_pre_hook(std::move(hook));
+  auto cdata = self->cdata.lock();
+  TORCH_INTERNAL_ASSERT(cdata);
+  cdata->add_pre_hook(std::move(hook));
   Py_RETURN_NONE;
 }
 
 PyObject* THPFunction_register_hook(THPFunction *self, PyObject *hook)
 {
-  return torch::autograd::registerFunctionHook(self->cdata, hook);
+  auto cdata = self->cdata.lock();
+  TORCH_INTERNAL_ASSERT(cdata);
+  return torch::autograd::registerFunctionHook(*cdata, hook);
 }
 
 static PyObject *unpack_saved_variables(
@@ -887,14 +933,16 @@ PyObject *THPFunction_saved_variables(THPFunction *self, void *_unused)
 
 PyObject *THPFunction_next_functions(THPFunction *self, void *_unused)
 {
-  const auto num_outputs = self->cdata.num_outputs();
+  auto cdata = self->cdata.lock();
+  TORCH_INTERNAL_ASSERT(cdata);
+  const auto num_outputs = cdata->num_outputs();
   THPObjectPtr result(PyTuple_New(num_outputs));
   if (!result)
     return nullptr;
   for (uint32_t i = 0; i < num_outputs; i++) {
     THPObjectPtr fn_tuple(PyTuple_New(2));
     if (!fn_tuple) return nullptr;
-    const auto& edge = self->cdata.next_edge(i);
+    const auto& edge = cdata->next_edge(i);
     PyObject* fn = functionToPyObject(edge.function);
     if (!fn) return nullptr;
     PyTuple_SET_ITEM(fn_tuple.get(), 0, fn);
@@ -906,7 +954,8 @@ PyObject *THPFunction_next_functions(THPFunction *self, void *_unused)
 
 PyObject *THPFunction_metadata(THPFunction *self, void *_unused)
 {
-  auto metadata = static_cast<PyAnomalyMetadata*>(self->cdata.metadata())->dict();
+  auto cdata = self->cdata.lock();
+  auto metadata = static_cast<PyAnomalyMetadata*>(cdata->metadata())->dict();
 
   Py_INCREF(metadata);
   return metadata;
@@ -1051,6 +1100,5 @@ std::shared_ptr<PyFunction> THPFunction_asFunction(THPFunction* self)
     return std::shared_ptr<PyFunction>();
   }
 
-  Py_INCREF((PyObject*)self);
-  return std::shared_ptr<PyFunction>(&self->cdata, Decref());
+  return self->cdata.lock();
 }
