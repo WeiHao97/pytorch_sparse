@@ -1080,8 +1080,6 @@ def _qualified_name(obj):
 def script(obj, optimize=True, _frames_up=0, _rcb=None):
     if not _enabled:
         return obj
-    if _rcb is None:
-        _rcb = _jit_internal.createResolutionCallback(_frames_up + 1)
 
     if isinstance(obj, torch.nn.Module):
         return _convert_to_script_module(obj)
@@ -1090,12 +1088,25 @@ def script(obj, optimize=True, _frames_up=0, _rcb=None):
     if inspect.isclass(obj):
         if not _is_new_style_class(obj):
             raise RuntimeError("TorchScript classes must be new-style classes. Please inherit from 'object'")
+        if _rcb is None:
+            _rcb = _jit_internal.createResolutionCallback(_frames_up + 1)
         ast = get_jit_class_def(obj, obj.__name__)
         _jit_script_class_compile(qualified_name, ast, _rcb)
         _add_script_class(obj, qualified_name)
         return obj
     else:
         ast = get_jit_def(obj)
+        if _rcb is None:
+            closure_rcb = _jit_internal.createResolutionCallbackFromClosure(obj)
+            stack_rcb = _jit_internal.createResolutionCallback(_frames_up + 1)
+            def _rcb(name):
+                # since type comments aren't captured in the function's closures,
+                # we still need to try to the rcb based on stack frames if the
+                # closure rcb fails
+                result = closure_rcb(name)
+                if result:
+                    return result
+                return stack_rcb(name)
         fn = torch._C._jit_script_compile(qualified_name, ast, _rcb, get_default_args(obj))
         # Forward docstrings
         fn.__doc__ = obj.__doc__
@@ -1997,6 +2008,7 @@ def _get_builtin_table():
         (torch.nn.init._no_grad_uniform_, "aten::_no_grad_uniform_"),
         (torch.nn.init._no_grad_zero_, "aten::_no_grad_zero_"),
         (torch.nn.utils.rnn.get_packed_sequence, "aten::_pack_sequence"),
+        (torch._C._get_tracing_state, "aten::_get_tracing_state"),
         (warnings.warn, "aten::warn"),
     ]
 
