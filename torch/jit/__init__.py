@@ -1070,7 +1070,8 @@ def script(obj, optimize=True, _frames_up=0, _rcb=None):
     it as TorchScript code using the TorchScript compiler, and return a ``ScriptModule``.
 
     **Scripting a function**
-        The ``@torch.jit.script`` decorator will construct a ``ScriptModule`` with a single ``forward`` method that implements the function. The resulting ``ScriptModule`` has no parameters or attributes.
+        The ``@torch.jit.script`` decorator will construct a ``ScriptModule`` with a single ``forward``
+        method that implements the function. The resulting ``ScriptModule`` has no parameters or attributes.
 
         Example (scripting a function)::
 
@@ -1084,7 +1085,9 @@ def script(obj, optimize=True, _frames_up=0, _rcb=None):
                 return r
 
     **Scripting an nn.Module**
-        Scripting an ``nn.Module`` by default will compile the ``forward`` method and recursively compile any methods, submodules, and functions called by ``forward``. If a ``nn.Module`` only uses features supported in TorchScript, no changes to the original module code should be necessary.
+        Scripting an ``nn.Module`` by default will compile the ``forward`` method and recursively
+        compile any methods, submodules, and functions called by ``forward``. If a ``nn.Module`` only uses
+        features supported in TorchScript, no changes to the original module code should be necessary.
 
         Example (scripting a simple module with a Parameter)::
 
@@ -1129,7 +1132,8 @@ def script(obj, optimize=True, _frames_up=0, _rcb=None):
 
             scripted_module = torch.jit.script(MyModule())
 
-        To compile a method other than ``forward`` (and recursively compile anything it calls), add the ``@torch.jit.export`` decorator to the method.
+        To compile a method other than ``forward`` (and recursively compile anything it calls), add
+        the ``@torch.jit.export`` decorator to the method.
     """
     if not _enabled:
         return obj
