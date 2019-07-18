@@ -156,14 +156,14 @@ def save(m, f, _extra_files=DEFAULT_EXTRA_FILES_MAP):
         Save an offline version of this module for use in a separate process. The saved
         module serializes all of the methods, submodules, parameters, and attributes of this
         module. It can be loaded into the C++ API using ``torch::jit::load(filename)`` or into the Python
-        API with ``torch.jit.load(filename)``.
+        API with :func:`load <torch.jit.load>`.
 
         To be able to save a module, it must not make any calls to native Python functions.
         This means that all submodules must be subclasses of ``torch.jit.ScriptModule`` as well.
 
         .. DANGER::
            All modules, no matter their device, are always loaded onto the CPU during loading.
-           This is different from :func:`torch.load`'s semantics and may change in the future.
+           This is different from :func:`load <torch.jit.load>`'s semantics and may change in the future.
 
         Arguments:
             m: a ScriptModule to save
@@ -180,7 +180,14 @@ def save(m, f, _extra_files=DEFAULT_EXTRA_FILES_MAP):
 
         Example: ::
 
-            m = torch.jit.ScriptModule()
+            import torch
+            import io
+
+            class MyModule(torch.nn.Module):
+                def forward(self, x):
+                    return x + 10
+
+            m = torch.jit.script(MyModule())
 
             # Save to file
             torch.jit.save(m, 'scriptmodule.pt')
@@ -1063,7 +1070,7 @@ def script(obj, optimize=True, _frames_up=0, _rcb=None):
     it as TorchScript code using the TorchScript compiler, and return a ``ScriptModule``.
 
     **Scripting a function**
-        The ``@torch.jit.script`` decorator will construct a ``ScriptModule`` with a single``forward`` method that implements the function. The resulting ``ScriptModule`` has no parameters or attributes. 
+        The ``@torch.jit.script`` decorator will construct a ``ScriptModule`` with a single ``forward`` method that implements the function. The resulting ``ScriptModule`` has no parameters or attributes.
 
         Example (scripting a function)::
 
