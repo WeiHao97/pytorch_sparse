@@ -909,9 +909,21 @@ Tensor view(const Tensor& self, IntArrayRef size) {
     "not compatible with input tensor's size and stride (at least one dimension"
     " spans across two contiguous subspaces). Use .reshape(...) instead.");
   auto stride_value = *stride;
-  auto self_ = self.clone();
-  self_.set_(self.storage(), self.storage_offset(), inferred_size,
-             stride_value);
+  Tensor self_;
+  if (self.is_quantized()) {
+    TORCH_CHECK(self.qscheme() == kPerTensorAffine,
+                "Only PerTensorAffine quantization is supported right now");
+    auto impl = c10::make_intrusive<QTensorImpl>(Storage(self.storage()), self.type_id(),
+                    get_qtensorimpl(self)->quantizer());
+    impl->set_storage_offset(self.storage_offset());
+    impl->set_sizes_and_strides(inferred_size, stride_value);
+    self_ = Tensor(impl);
+  } else {
+    auto impl = c10::make_intrusive<TensorImpl>(Storage(self.storage()), self.type_id());
+    impl->set_storage_offset(self.storage_offset());
+    impl->set_sizes_and_strides(inferred_size, stride_value);
+    self_ = Tensor(impl);
+  }
   return self_;
 }
 
