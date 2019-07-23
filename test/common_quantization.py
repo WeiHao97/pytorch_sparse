@@ -4,6 +4,7 @@ checking quantization api and properties of resulting modules.
 from __future__ import absolute_import, division, print_function, unicode_literals
 import torch
 import torch.nn.quantized as nnq
+import torch.nn.quantized.dynamic as nnqd
 from common_utils import TestCase
 from torch.quantization import QuantWrapper, QuantStub, DeQuantStub, default_qconfig
 
@@ -92,6 +93,13 @@ class QuantizationTestCase(TestCase):
         self.assertEqual(type(mod.module), nnq.Linear)
         self.assertEqual(mod.module.bias.dtype, torch.qint32)
         self.checkQuantDequant(mod)
+
+    def checkDynamicQuantizedLinear(self, mod):
+        r"""Checks that mod has been swapped for an nnqd.Linear
+            module, the bias is float.
+        """
+        self.assertEqual(type(mod), nnqd.Linear)
+        self.assertEqual(mod.bias.dtype, torch.float)
 
     def checkLinear(self, mod):
         self.assertEqual(type(mod), torch.nn.Linear)
