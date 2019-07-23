@@ -2,11 +2,21 @@
 
 - func: null(Tensor self) -> Tensor
 
+- func: null2(Tensor self, Tensor a) -> Tensor
+
+- func: null3(Tensor self, Tensor a, Tensor b) -> Tensor
+
 - func: null4(Tensor self, Tensor a, Tensor b, Tensor c) -> Tensor
 
 - func: null_back(Tensor self) -> Tensor
 
 - func: null_c10(Tensor self) -> Tensor
+  use_c10_dispatcher: True
+
+- func: null2_c10(Tensor self, Tensor a) -> Tensor
+  use_c10_dispatcher: True
+
+- func: null3_c10(Tensor self, Tensor a, Tensor b) -> Tensor
   use_c10_dispatcher: True
 
 - func: null4_c10(Tensor self, Tensor a, Tensor b, Tensor c) -> Tensor
