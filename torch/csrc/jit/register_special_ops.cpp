@@ -150,6 +150,68 @@ void recursiveStore(
   }
 }
 
+template<bool if_set_requires_grad>
+Operation createTensorFromList(const Node* node) {
+  auto input = node->inputs().at(0);
+  auto elem_type = input->type();
+  while (auto list_type = elem_type->cast<ListType>()) {
+    elem_type = list_type->getElementType();
+  }
+  checkListInputType(elem_type, node);
+  at::ScalarType initial_scalar_type = scalarTypeFromJitType(elem_type);
+  return [initial_scalar_type, elem_type](Stack& stack) {
+    bool requires_grad;
+    IValue data;
+    IValue dtype;
+    IValue device;
+    if (if_set_requires_grad) {
+      pop(stack, data, dtype, device, requires_grad);
+    } else {
+      pop(stack, data, dtype, device);
+    }
+    auto sizes = compute_sizes(data);
+    auto tensor = autograd::make_variable(at::empty(
+        sizes, at::initialTensorOptions().dtype(initial_scalar_type)));
+
+    recursiveStore(
+        (char*)tensor.data_ptr(),
+        sizes,
+        tensor.strides(),
+        0,
+        tensor.element_size(),
+        data);
+
+    at::ScalarType scalar_type =
+        dtype.isNone() ? tensor.scalar_type() : dtype.toScalarType();
+    c10::Device dev =
+        device.isNone() ? tensor.device() : device.toDevice();
+    if (scalar_type != initial_scalar_type || dev != tensor.device()) {
+      tensor = tensor.to(dev, scalar_type);
+    }
+
+    auto default_type =
+        at::typeMetaToScalarType(at::get_default_dtype());
+
+    if (dtype.isNone() && tensor.scalar_type() != default_type &&
+        tensor.numel() == 0) {
+      AT_WARN(
+          "Creating a tensor from an empty ",
+          elem_type->python_str(),
+          "list will create a tensor of default floating point type  (currently ",
+          default_type,
+          ") in python but a tensor of type ",
+          elem_type->python_str(),
+          " in torchscript.\n",
+          "Pass in a dtype argument to ensure consistent behavior");
+    }
+    if (if_set_requires_grad) {
+      tensor.set_requires_grad(requires_grad);
+    }
+    push(stack, std::move(tensor));
+    return 0;
+  };
+}
+
 RegisterOperators reg({
     Operator(
         "aten::split(Tensor self, int[] split_sizes, int dim=0) -> Tensor[]",
@@ -283,7 +345,30 @@ RegisterOperators reg({
           push(stack, std::move(tensor));                                     \
           return 0;                                                           \
         };                                                                    \
-      }),
+      }),                                                                     \
+  Operator(                                                                   \
+      "aten::as_tensor(" #operator_type                                       \
+      " t, *, ScalarType? dtype=None, Device? device=None) -> Tensor",        \
+      [](const Node* node) {                                                  \
+        auto initial_scalar_type =                                            \
+            scalarTypeFromJitType(node->inputs().at(0)->type());              \
+        return [initial_scalar_type](Stack& stack) {                          \
+          c_type scalar_val;                                                  \
+          IValue dtype;                                                       \
+          IValue device;                                                      \
+          pop(stack, scalar_val, dtype, device);                              \
+          auto tensor = autograd::make_variable(tensor_creation_op);          \
+          at::ScalarType scalar_type =                                        \
+              dtype.isNone() ? tensor.scalar_type() : dtype.toScalarType();   \
+          c10::Device dev =                                                   \
+              device.isNone() ? tensor.device() : device.toDevice();          \
+          if (scalar_type != initial_scalar_type || dev != tensor.device()) { \
+            tensor = tensor.to(dev, scalar_type);                             \
+          }                                                                   \
+          push(stack, std::move(tensor));                                     \
+          return 0;                                                           \
+        };                                                                    \
+      }),                                                                     \
 
     DEFINE_TORCH_TENSOR_OP(float, double, at::scalar_to_tensor(scalar_val))
         DEFINE_TORCH_TENSOR_OP(int, int64_t, at::scalar_to_tensor(scalar_val))
@@ -326,60 +411,30 @@ RegisterOperators reg({
         }),
     Operator(
         "aten::tensor(t[] data, *, ScalarType? dtype=None, Device? device=None, bool requires_grad=False) -> Tensor",
+        createTensorFromList<true>),
+    Operator(
+        "aten::as_tensor(Tensor data, *, ScalarType? dtype=None, Device? device=None) -> Tensor",
         [](const Node* node) {
           auto input = node->inputs().at(0);
-          auto elem_type = input->type();
-          while (auto list_type = elem_type->cast<ListType>()) {
-            elem_type = list_type->getElementType();
-          }
-          checkListInputType(elem_type, node);
-          at::ScalarType initial_scalar_type = scalarTypeFromJitType(elem_type);
-          return [initial_scalar_type, elem_type](Stack& stack) {
-            bool requires_grad;
-            IValue data;
-            IValue dtype;
-            IValue device;
-            pop(stack, data, dtype, device, requires_grad);
-            auto sizes = compute_sizes(data);
-            auto tensor = autograd::make_variable(at::empty(
-                sizes, at::initialTensorOptions().dtype(initial_scalar_type)));
-
-            recursiveStore(
-                (char*)tensor.data_ptr(),
-                sizes,
-                tensor.strides(),
-                0,
-                tensor.element_size(),
-                data);
-
+          return [](Stack& stack) {
+            auto device = pop(stack).toOptional<c10::Device>();
+            auto dtype = pop(stack).toOptional<at::ScalarType>();
+            at::Tensor data = pop(stack).toTensor();
             at::ScalarType scalar_type =
-                dtype.isNone() ? tensor.scalar_type() : dtype.toScalarType();
+                dtype? dtype.value(): data.scalar_type();
             c10::Device dev =
-                device.isNone() ? tensor.device() : device.toDevice();
-            if (scalar_type != initial_scalar_type || dev != tensor.device()) {
-              tensor = tensor.to(dev, scalar_type);
-            }
+                device? device.value(): data.device();
 
-            auto default_type =
-                at::typeMetaToScalarType(at::get_default_dtype());
-
-            if (dtype.isNone() && tensor.scalar_type() != default_type &&
-                tensor.numel() == 0) {
-              AT_WARN(
-                  "Creating a tensor from an empty ",
-                  elem_type->python_str(),
-                  "list will create a tensor of default floating point type  (currently ",
-                  default_type,
-                  ") in python but a tensor of type ",
-                  elem_type->python_str(),
-                  " in torchscript.\n",
-                  "Pass in a dtype argument to ensure consistent behavior");
+           if (scalar_type != data.scalar_type() || dev != data.device()) {
+              data = data.to(dev, scalar_type, /*non_blocking=*/false, /*copy=*/false);
             }
-            tensor.set_requires_grad(requires_grad);
-            push(stack, std::move(tensor));
+            push(stack, std::move(data));
             return 0;
           };
         }),
+    Operator(
+        "aten::as_tensor(t[] data, *, ScalarType? dtype=None, Device? device=None) -> Tensor",
+        createTensorFromList<false>),
     Operator(
         "aten::_assert_int_or_pair(int[] vals, str name, str message) -> Tensor",
         [](const Node* node) {
