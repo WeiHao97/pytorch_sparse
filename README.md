@@ -53,8 +53,10 @@ where vaule has the meaning that:
 2	-> primitive information at creation and execution
 
 ## Example
-Reaching the dataset from https://drive.google.com/uc?export=download&confirm=E9YD&id=1TF6CsbFwhMo2Ry3LHQkgJPzJdN0ZS1XC
+Reach the dataset from https://drive.google.com/uc?export=download&confirm=E9YD&id=1TF6CsbFwhMo2Ry3LHQkgJPzJdN0ZS1XC
 
 And run Sparse_Degree_Analysis_batch.py in the example folder.
 
 Comparison of the performance is available in the example folder.
+
+To create a new sparse dataset, you basically need to mask out all pixels from a template which contains the uninterested pixels. See Sparse_Degree_Analysis_batch.py for details
