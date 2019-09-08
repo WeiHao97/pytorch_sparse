@@ -1,7 +1,7 @@
 Pytorch optimized on sparse video
 --------------------------------------------------------------------------------
 
-During inference on sparse videos/images, where most pixels of the target have the value zero, many resulting values after the Conv2d() layer will be zeros no matter what weight does a Conv2d filter hold. In the original pytorch package, such redandunt operations are not being taken care of which leads to a longer inference time. The repository made some changes to the existed pytorch package for better performance in case of row-wise sparse images/videos without adding any possible error and not much overhead by providing a sparsity check towards the target. The inference time is cut off by 50% when the code is used in the example provided below. 
+During inference on sparse videos/images, where most pixels of the target have the value zero, many resulting values after the Conv2d() layer will be zeros no matter what weights does a Conv2d filter hold. In the original pytorch package, such redandunt operations are not being taken care of which leads to a longer inference time. This repository made some changes to the existed pytorch package for better performance in case of row-wise sparse images/videos without adding any possible error and not much overhead by providing a sparsity check towards the target. The inference time is cut off by 50% when the code is used in the example provided below. 
 
 ## Installation
 
@@ -35,5 +35,22 @@ On Linux
 export CMAKE_PREFIX_PATH=${CONDA_PREFIX:-"$(dirname $(which conda))/../"}
 python setup.py install
 ```
+
+#### Replace file
+Once you have your pytorch built, you should replace the file jit_avx512_common_convolution.cpp in /pytorch/third_party/ideep/mkl-dnn/src/cpu/ with the filr provided in this repository and do:
+
+On Linux
+```bash
+python setup.py rebuild
+```
+To better visualize the performance, you can turn on the verbose model by:
+```bash
+export MKLDNN_VERBOSE= value
+```
+where vaule has the meaning that:
+0	-> no verbose output (default)
+1	-> primitive information at execution
+2	-> primitive information at creation and execution
+
 ## Example
 
