@@ -16,7 +16,7 @@ if __name__ == "__main__":
     # Check if camera opened successfully
     if (cap.isOpened()== False): 
         print("Error opening video stream or file")
-    subtractor = cv2.bgsegm.createBackgroundSubtractorMOG()
+    subtractor = cv2.bgsegm.createBackgroundSubtractorMOG() # use the first frame as a template
     sparsity_mask = []
     sparsity_conv = []
     t_orig = []
@@ -39,10 +39,10 @@ if __name__ == "__main__":
     
         if ret == True:
             # Sparsity of the original sparse image (mask) 
-            mask = subtractor.apply(frame)
-            th = cv2.threshold(mask.copy(), 244, 255, cv2.THRESH_BINARY)[1]        
-            th = cv2.erode(th, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)), iterations=1)        
-            dilated = cv2.dilate(th, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (8, 3)), iterations=2)
+            mask = subtractor.apply(frame) # mask out all new pixels from the template
+            th = cv2.threshold(mask.copy(), 244, 255, cv2.THRESH_BINARY)[1]  # refine      
+            th = cv2.erode(th, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)), iterations=1)  # refine       
+            dilated = cv2.dilate(th, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (8, 3)), iterations=2) # refine   
             
             frame = cv2.cvtColor(frame,cv2.COLOR_BGR2RGB) #Convert Frame from BGR2RGB
             res = cv2.bitwise_and(frame,frame,mask = dilated) #Mask frame out
