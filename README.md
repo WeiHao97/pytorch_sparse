@@ -1,10 +1,7 @@
-![PyTorch Logo](https://github.com/pytorch/pytorch/blob/master/docs/source/_static/img/pytorch-logo-dark.png)
-
+Pytorch optimized on sparse video
 --------------------------------------------------------------------------------
 
-PyTorch is a Python package that provides two high-level features:
-- Tensor computation (like NumPy) with strong GPU acceleration
-- Deep neural networks built on a tape-based autograd system
+During inference on sparse videos/images, where most pixels of the target have the value zero, many resulting values after the Conv2d() layer will be zeros no matter what weight does a Conv2d filter hold. In the original pytorch package, such redandunt operations are not being taken care of which leads to a longer inference time. The repository made some changes to the existed pytorch package for better performance in case of row-wise sparse images/videos without adding any possible error and not much overhead by providing a sparsity check towards the target. The inference time is cut off by 50% when the code is used in the example provided below. 
 
 ## Installation
 
@@ -38,5 +35,5 @@ On Linux
 export CMAKE_PREFIX_PATH=${CONDA_PREFIX:-"$(dirname $(which conda))/../"}
 python setup.py install
 ```
-
+## Example
 
