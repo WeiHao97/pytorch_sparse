@@ -54,5 +54,7 @@ where vaule has the meaning that:
 
 ## Example
 Reaching the dataset from https://drive.google.com/uc?export=download&confirm=E9YD&id=1TF6CsbFwhMo2Ry3LHQkgJPzJdN0ZS1XC
-And run Sparse_Degree_Analysis_batch.py in the example folder
+
+And run Sparse_Degree_Analysis_batch.py in the example folder.
+
 Comparison of the performance is available in the example folder.
