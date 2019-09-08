@@ -37,7 +37,7 @@ python setup.py install
 ```
 
 #### Replace file
-Once you have your pytorch built, you should replace the file jit_avx512_common_convolution.cpp in /pytorch/third_party/ideep/mkl-dnn/src/cpu/ with the filr provided in this repository and do:
+Once you have your pytorch built, you should replace the file XXXXXX with the file provided in this repository and do:
 
 On Linux
 ```bash
