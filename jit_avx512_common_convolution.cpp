@@ -261,7 +261,7 @@ void jit_avx512_common_convolution_fwd_t
         nthr = jcp.aligned_threads;
     else
         nthr = mkldnn_get_max_threads();
-    nthr = 150;//???
+    nthr = 150;//Using artificial thread number to reduce per thread workload- breaking bottleneck of maximum speed
 
     parallel(nthr, [&](const int ithr, const int nthr) {
         int start{0}, end{0}, start_copy;
@@ -327,7 +327,7 @@ void jit_avx512_common_convolution_fwd_t
                             auto aux_src = src_c
                                     + i_t_overflow * dilate_h * src_h_stride;
                             auto aux_wht = wht_w + i_t_overflow * wht_h_stride;
-                            
+                            //Sparsity Check ----SparseConvolution
                             int num = 0;
                             int i = 0;
                             for(; i <int(src_h_stride) * kh_padding; i++){
